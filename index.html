@@ -4278,6 +4278,8 @@ let speechRecognition = null;
 let activeSpeechButton = null;
 let speechSessionError = "";
 let speechRestartTimer = null;
+let speechGradeTimer = null;
+let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
 
 function checkLocalSpeechAvailability() {
@@ -4306,7 +4308,9 @@ const SPEECH_EQUIVALENT_GROUPS = [
     "くらいです", "ぐらいです", "です",
     "くらいかかります", "ぐらいかかります", "かかります", "位かかります", "位です"
   ],
-  ["城", "お城", "しろ", "おしろ"],
+  // 音声認識で「お城」が「白」と書き出される場合を許容する。
+  ["城", "お城", "しろ", "おしろ", "白"],
+  ["二時間", "2時間", "２時間", "にじかん"],
   ["お祭り", "おまつり", "花火", "はなび"],
   ["テスト", "試験", "考査", "こうさ", "しけん"],
   ["家", "いえ", "うち"],
@@ -4369,7 +4373,7 @@ const SPEECH_EQUIVALENT_GROUPS = [
   [
     "暑いと思います", "あついとおもいます", "暑そうです", "あつそうです",
     "厚いと思います", "厚そうです", "熱いと思います", "熱そうです",
-    "晴れると思います", "はれるとおもいます", "晴れそうです", "はれそうです",
+    "晴れると思います", "はれるとおもいます", "晴れだと思います", "はれだとおもいます", "晴れそうです", "はれそうです",
     "天気がいいと思います", "てんきがいいとおもいます", "天気がよさそうです", "てんきがよさそうです",
     "いい天気だと思います", "いいてんきだとおもいます", "いい天気になりそうです", "いいてんきになりそうです",
     "天気がよくなると思います", "てんきがよくなるとおもいます", "天気がよくなりそうです", "てんきがよくなりそうです",
@@ -4388,6 +4392,7 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["終わりました", "できました"],
   ["休んだ", "寝た", "やすんだ", "ねた"],
   ["ています", "てます"],
+  ["ていません", "てません"],
   ["でいます", "でます"]
 ];
 
@@ -4427,8 +4432,11 @@ function replaceKnownKanjiWithReadings(value, kanjiReadingMap = []) {
 }
 
 function normalizeSpeechForComparison(value, kanjiReadingMap = []) {
-  // 他の問題のルビを混ぜず、この問題の正解欄にあるルビだけを最初に適用する。
-  return replaceSpeechEquivalentAliases(replaceKnownKanjiWithReadings(value, kanjiReadingMap));
+  // 完全な言い換え候補を先に保護してから、この問題固有のルビを適用する。
+  // 例：「友達」の「友」だけが先に「とも」になると「とも達」になり、候補と一致しなくなる。
+  const protectedAliases = replaceSpeechEquivalentAliases(value);
+  const withReadings = replaceKnownKanjiWithReadings(protectedAliases, kanjiReadingMap);
+  return replaceSpeechEquivalentAliases(withReadings);
 }
 
 function isOrderedSpeechMatch(transcript, answer) {
@@ -4448,9 +4456,13 @@ function isOrderedSpeechMatch(transcript, answer) {
 function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = []) {
   const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap);
   return answers.some(answer => {
-    const normalizedAnswer = normalizeSpeechForComparison(answer, kanjiReadingMap);
-    if (!normalizedAnswer) return false;
-    return isOrderedSpeechMatch(normalizedTranscript, normalizedAnswer);
+    // 問題文の注意喚起として付けた冒頭の「あ！」は、発話しなくても採点に影響させない。
+    const answerVariants = [answer, String(answer || "").replace(/^\s*あ[!！]\s*/, "")];
+    return answerVariants.some(answerVariant => {
+      const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap);
+      if (!normalizedAnswer) return false;
+      return isOrderedSpeechMatch(normalizedTranscript, normalizedAnswer);
+    });
   });
 }
 
@@ -4475,7 +4487,12 @@ function getCellAnswerReading(cell) {
 
 function stopSpeechRecognition() {
   activeSpeechButton = null;
+  activeSpeechSegments.clear();
   speechSessionError = "";
+  if (speechGradeTimer !== null) {
+    clearTimeout(speechGradeTimer);
+    speechGradeTimer = null;
+  }
   if (speechRestartTimer !== null) {
     clearTimeout(speechRestartTimer);
     speechRestartTimer = null;
@@ -4502,6 +4519,11 @@ function startSpeechTest(button) {
     return;
   }
 
+  if (speechGradeTimer !== null) {
+    clearTimeout(speechGradeTimer);
+    speechGradeTimer = null;
+  }
+  activeSpeechSegments.clear();
   if (activeSpeechButton && activeSpeechButton !== button) {
     activeSpeechButton.classList.remove("listening");
   }
@@ -4509,6 +4531,27 @@ function startSpeechTest(button) {
   button.className = "test-answer-button listening";
   button.querySelector(".test-transcript").textContent = "聞いています…";
   button.querySelector(".test-status").textContent = "";
+}
+
+function gradeSpeechAnswer(target) {
+  if (activeSpeechButton !== target) return;
+  const transcript = Array.from(activeSpeechSegments.values()).join("");
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(target.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  const correct = isSpeechAnswerCorrect(
+    transcript,
+    [target.dataset.answer, target.dataset.answerReading],
+    kanjiReadingMap
+  );
+  target.className = `test-answer-button ${correct ? "correct" : "incorrect"}`;
+  if (correct) target.querySelector(".test-transcript").textContent = target.dataset.answer;
+  target.querySelector(".test-status").textContent = correct ? "" : "× もう一度";
+  activeSpeechButton = null;
+  activeSpeechSegments.clear();
 }
 
 function startSpeechTestSession() {
@@ -4529,28 +4572,28 @@ function startSpeechTestSession() {
   recognition.onresult = event => {
     const target = activeSpeechButton;
     if (!target) return;
-    const result = event.results[event.resultIndex];
-    const transcript = result[0].transcript;
-    target.querySelector(".test-transcript").textContent = transcript;
-    if (!result.isFinal) return;
-    let kanjiReadingMap = [];
-    try {
-      kanjiReadingMap = JSON.parse(target.dataset.kanjiReadingMap || "[]");
-    } catch (error) {
-      kanjiReadingMap = [];
+    for (let index = event.resultIndex; index < event.results.length; index += 1) {
+      activeSpeechSegments.set(index, event.results[index][0].transcript);
     }
-    const correct = isSpeechAnswerCorrect(
-      transcript,
-      [target.dataset.answer, target.dataset.answerReading],
-      kanjiReadingMap
-    );
-    target.className = `test-answer-button ${correct ? "correct" : "incorrect"}`;
-    if (correct) target.querySelector(".test-transcript").textContent = target.dataset.answer;
-    target.querySelector(".test-status").textContent = correct ? "" : "× もう一度";
-    activeSpeechButton = null;
+    const transcript = Array.from(activeSpeechSegments.values()).join("");
+    target.querySelector(".test-transcript").textContent = transcript;
+    if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+    const latestResult = event.results[event.results.length - 1];
+    if (!latestResult.isFinal) return;
+    // continuous モードは一文を複数の final result に分割することがある。
+    // 最初の断片だけで採点せず、短い無音まで全断片を結合してから採点する。
+    speechGradeTimer = setTimeout(() => {
+      speechGradeTimer = null;
+      gradeSpeechAnswer(target);
+    }, 1200);
   };
   recognition.onerror = event => {
     const target = activeSpeechButton;
+    if (speechGradeTimer !== null) {
+      clearTimeout(speechGradeTimer);
+      speechGradeTimer = null;
+    }
+    activeSpeechSegments.clear();
     const isSilence = event.error === "no-speech";
     if (!isSilence) {
       speechSessionError = getSpeechErrorMessage(event.error);
