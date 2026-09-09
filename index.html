@@ -50,19 +50,6 @@
     gap: 3px;
   }
 
-  .firebase-control button {
-    border: 0;
-    border-radius: 999px;
-    padding: 7px 10px;
-    background: #fff;
-    color: #555;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 900;
-    box-shadow: 0 2px 8px rgba(0,0,0,.18);
-  }
-
-  .firebase-control button.connected { background:#dcfce7; color:#16803a; }
   .firebase-state { padding:2px 5px; border-radius:5px; background:rgba(255,255,255,.9); color:#b42318; font-size:9px; font-weight:900; }
   .firebase-state.connected { color:#16803a; }
 
@@ -2482,7 +2469,6 @@
 <body class="home-mode">
 
 <div class="firebase-control">
-  <button id="firebaseToggle" type="button" onclick="toggleFirebaseConnection()">Firebase ON</button>
   <span id="firebaseState" class="firebase-state">not connected</span>
 </div>
 
@@ -4606,26 +4592,14 @@ async function flushPendingTestResults() {
 
 function setFirebaseConnectionUi(connected) {
   firebaseConnected = connected;
-  const button = document.getElementById("firebaseToggle");
   const state = document.getElementById("firebaseState");
-  button?.classList.toggle("connected", connected);
   state?.classList.toggle("connected", connected);
-  if (button) button.textContent = firebaseEnabled ? "Firebase OFF" : "Firebase ON";
   if (state) state.textContent = connected ? "connected" : "not connected";
 }
 
-async function toggleFirebaseConnection() {
-  if (firebaseEnabled) {
-    firebaseEnabled = false;
-    firebaseConnectionUnsubscribe?.();
-    firebaseConnectionUnsubscribe = null;
-    if (firebaseApi && firebaseDatabase) firebaseApi.goOffline(firebaseDatabase);
-    setFirebaseConnectionUi(false);
-    return;
-  }
+async function connectFirebase() {
+  if (firebaseEnabled) return;
   firebaseEnabled = true;
-  const button = document.getElementById("firebaseToggle");
-  if (button) { button.disabled = true; button.textContent = "connecting..."; }
   try {
     const [appModule, databaseModule] = await Promise.all([
       import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
@@ -4643,7 +4617,7 @@ async function toggleFirebaseConnection() {
   } catch (error) {
     firebaseEnabled = false;
     setFirebaseConnectionUi(false);
-  } finally { if (button) button.disabled = false; }
+  }
 }
 
 function setSpeechButtonClass(button, state = "") {
@@ -9078,6 +9052,9 @@ window.addEventListener("orientationchange", () => {
 });
 
 window.addEventListener("load", () => {
+  // Firebaseの成否を待たずに画面を初期化する。接続できない環境でも、
+  // 結果はローカルへ保存され、次に接続できたとき同期される。
+  connectFirebase();
   checkLocalSpeechAvailability();
   bootstrapQuestionStorePersistence();
   setHomeMenu("main");
