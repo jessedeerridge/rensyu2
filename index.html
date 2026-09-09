@@ -680,7 +680,7 @@
     height: 100%;
     min-height: 43px;
     margin: 0;
-    padding: 5px 8px 18px;
+    padding: 5px 8px;
     border: 2px dashed #ff6fae;
     border-radius: 12px;
     background: #fff7fb;
@@ -689,18 +689,6 @@
     font-size: 14px;
     font-weight: 700;
     text-align: center;
-  }
-
-  .speech-input-countdown {
-    position: absolute;
-    right: 5px;
-    bottom: 3px;
-    left: 5px;
-    color: #888;
-    font-size: 9px;
-    line-height: 1.2;
-    text-align: center;
-    pointer-events: none;
   }
 
   .test-transcript {
@@ -4776,7 +4764,6 @@ function openSpeechInputFallback(button) {
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
       <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え" placeholder="キーボードの🎤で話す">
-      <span class="speech-input-countdown" id="speechInputFallbackStatus" aria-live="polite">話し終わって2秒で自動判定</span>
     </form>
   `);
   const input = document.getElementById("speechInputFallbackText");
@@ -4793,12 +4780,7 @@ function cancelSpeechInputFallbackGrade() {
 
 function scheduleSpeechInputFallbackGrade(input) {
   cancelSpeechInputFallbackGrade();
-  const status = document.getElementById("speechInputFallbackStatus");
-  if (!input?.value.trim()) {
-    if (status) status.textContent = "キーボードの🎤で話してください";
-    return;
-  }
-  if (status) status.textContent = "話し終わるまで待っています…";
+  if (!input?.value.trim()) return;
   speechInputFallbackGradeTimer = setTimeout(() => {
     speechInputFallbackGradeTimer = null;
     submitSpeechInputFallback();
@@ -4824,14 +4806,14 @@ function submitSpeechInputFallback(event) {
   gradeSpeechAnswer(button);
 }
 
-function enableSpeechInputFallback(button, reason, openImmediately = false) {
+function enableSpeechInputFallback(button, _reason, openImmediately = false) {
   speechInputFallbackMode = true;
   document.querySelectorAll("#tableArea .test-answer-button").forEach(answerButton => {
     if (answerButton.dataset.correct !== "true") answerButton.dataset.speechFallback = "true";
   });
   setSpeechButtonClass(button);
-  setSpeechButtonMessage(button, `${reason} もう一度タップして、キーボードのマイクから答えてください`);
-  button.querySelector(".test-status").textContent = "代替音声入力 🎤⌨️";
+  setSpeechButtonMessage(button, "タップして話す 🎤");
+  button.querySelector(".test-status").textContent = "";
   activeSpeechButton = null;
   if (openImmediately) openSpeechInputFallback(button);
 }
@@ -4916,7 +4898,7 @@ function startNextSpeechQuestion(currentButton) {
   if (!nextButton) return;
   if (speechInputFallbackMode) {
     nextButton.dataset.speechFallback = "true";
-    setSpeechButtonMessage(nextButton, "タップして、キーボードのマイクから答える 🎤⌨️");
+    openSpeechInputFallback(nextButton);
     return;
   }
   startSpeechTest(nextButton);
