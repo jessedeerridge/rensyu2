@@ -5042,10 +5042,18 @@ function isOrderedSpeechMatch(transcript, answer) {
   return false;
 }
 
-function getSpeechAnswerVariants(answer) {
+const CONJUGATION_ANSWER_VARIANTS = new Map([
+  ["会って", ["って"]],
+  ["立って", ["って"]],
+  ["会った", ["った"]],
+  ["立った", ["った"]]
+]);
+
+function getSpeechAnswerVariants(answer, isConjugation = false) {
   const source = String(answer || "");
   const variants = [source, source.replace(/^\s*あ[!！]\s*/, "")];
   const normalized = normalizeSpeechText(source);
+  if (isConjugation) variants.push(...(CONJUGATION_ANSWER_VARIANTS.get(normalized) || []));
   if (["まだジュースがありますか", "まだカレーがありますか"].includes(normalized)) {
     variants.push("まだありますか");
   }
@@ -5056,7 +5064,7 @@ function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConj
   const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
   return answers.some(answer => {
     // 問題文の注意喚起として付けた冒頭の「あ！」は、発話しなくても採点に影響させない。
-    const answerVariants = getSpeechAnswerVariants(answer);
+    const answerVariants = getSpeechAnswerVariants(answer, isConjugation);
     return answerVariants.some(answerVariant => {
       const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation);
       if (!normalizedAnswer) return false;
@@ -5306,7 +5314,7 @@ function getSpeechInputFallbackAnswers(button) {
   const isConjugation = button?.dataset.conjugation === "true";
   return [button?.dataset.answer, button?.dataset.answerReading]
     .filter(Boolean)
-    .flatMap(getSpeechAnswerVariants)
+    .flatMap(answer => getSpeechAnswerVariants(answer, isConjugation))
     .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation))
     .filter(Boolean);
 }
@@ -5833,21 +5841,26 @@ function makeTestTable() {
   if (!rows.length) return false;
   const isConjugation = currentSection === "conjugation";
 
-  const selected = shuffleArray(rows).slice(0, Math.min(15, rows.length));
+  const selected = shuffleArray(rows).slice(0, Math.min(15, rows.length)).map(row => {
+    const answerCell = row.cells[row.cells.length - 1];
+    return {
+      row,
+      answer: getCellAnswerText(answerCell),
+      answerReading: getCellAnswerReading(answerCell)
+    };
+  });
   if (isConjugation && selected.length > 1) {
-    const longestAnswerIndex = selected.reduce((longestIndex, row, index, selectedRows) => {
-      const answerLength = Array.from(getCellAnswerText(row.cells[row.cells.length - 1])).length;
-      const longestLength = Array.from(getCellAnswerText(selectedRows[longestIndex].cells[selectedRows[longestIndex].cells.length - 1])).length;
-      return answerLength > longestLength ? index : longestIndex;
-    }, 0);
-    const [longestAnswerRow] = selected.splice(longestAnswerIndex, 1);
-    selected.unshift(longestAnswerRow);
+    // 音声で答えるテストなので、漢字の字数ではなく読みの文字数で最長を決める。
+    const answerLength = item => Array.from(normalizeSpeechText(item.answerReading)).length;
+    const longestAnswerIndex = selected.reduce(
+      (longestIndex, item, index, items) => answerLength(item) > answerLength(items[longestIndex]) ? index : longestIndex,
+      0
+    );
+    selected.unshift(...selected.splice(longestAnswerIndex, 1));
   }
-  const body = selected.map((row, index) => {
+  const body = selected.map(({ row, answer, answerReading }, index) => {
     const prompt = row.cells[0].cloneNode(true);
     prompt.querySelectorAll(".question-box").forEach(node => node.remove());
-    const answer = getCellAnswerText(row.cells[row.cells.length - 1]);
-    const answerReading = getCellAnswerReading(row.cells[row.cells.length - 1]);
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
     return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" data-selected="false" aria-pressed="false" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
   }).join("");
