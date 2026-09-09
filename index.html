@@ -4279,7 +4279,6 @@ let activeSpeechButton = null;
 let speechSessionError = "";
 let speechGradeTimer = null;
 let speechAnswerTimeoutTimer = null;
-let speechRetryTimer = null;
 let speechRetryCount = 0;
 let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
@@ -4300,10 +4299,8 @@ function setSpeechButtonMessage(button, message) {
 function clearSpeechTimers() {
   if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
   if (speechAnswerTimeoutTimer !== null) clearTimeout(speechAnswerTimeoutTimer);
-  if (speechRetryTimer !== null) clearTimeout(speechRetryTimer);
   speechGradeTimer = null;
   speechAnswerTimeoutTimer = null;
-  speechRetryTimer = null;
 }
 
 function abortCurrentSpeechRecognition() {
@@ -4492,6 +4489,7 @@ const CONJUGATION_READING_GROUPS = [
   ["立", "建", "た"],
   ["読", "呼", "よ"],
   ["聞", "効", "聴", "き"],
+  ["取", "捕", "撮", "と"],
   ["貸", "課", "か"],
   ["着", "来", "き"],
   ["帰", "変", "かえ"],
@@ -4505,6 +4503,25 @@ const CONJUGATION_READING_GROUPS = [
   ["賑やか", "にぎやか"],
   ["嫌い", "きらい"]
 ];
+
+const CONJUGATION_FORM_GROUPS = [
+  ["とろう", "取ろう", "捕ろう", "撮ろう", "トロ―"],
+  ["聞こう", "機構", "気候"],
+  ["しよう", "使用", "仕様", "私用"],
+  ["来よう", "雇用"],
+  ["行こう", "以降", "意向", "移行"],
+  ["乗ろう", "呪う"],
+  ["書こう", "加工", "掻こう", "描こう", "囲う", "河口", "下降", "火口"],
+  ["泳ごう", "及ぼう"],
+  ["借りよう", "カリオ", "狩り用"]
+];
+
+const CONJUGATION_FORM_ALIASES = CONJUGATION_FORM_GROUPS
+  .flatMap((group, groupIndex) => group.map(value => ({
+    alias: normalizeSpeechText(value),
+    canonical: `conjugationform${groupIndex}`
+  })))
+  .sort((a, b) => b.alias.length - a.alias.length);
 
 const CONJUGATION_READING_ALIASES = CONJUGATION_READING_GROUPS
   .flatMap(group => group.slice(0, -1).map(value => ({
@@ -4521,9 +4538,13 @@ function replaceSpeechEquivalentAliases(value) {
 }
 
 function replaceConjugationVariants(value) {
+  const protectedForms = CONJUGATION_FORM_ALIASES.reduce(
+    (text, { alias, canonical }) => text.replaceAll(alias, canonical),
+    normalizeSpeechText(value)
+  );
   return CONJUGATION_READING_ALIASES.reduce(
     (text, { alias, reading }) => text.replaceAll(alias, reading),
-    normalizeSpeechText(value)
+    protectedForms
   )
     .replace(/よい/g, "いい")
     .replace(/られ/g, "れ");
@@ -4641,14 +4662,11 @@ function retrySpeechQuestion(button) {
     return;
   }
   speechRetryCount += 1;
-  setSpeechButtonClass(button);
-  setSpeechButtonMessage(button, "マイクを再準備しています…");
-  speechRetryTimer = setTimeout(() => {
-    speechRetryTimer = null;
-    if (!testModeActive || activeSpeechButton !== button) return;
-    startSpeechRecognitionForButton(button);
-    if (speechRecognition) armSpeechAnswerTimeout(button, speechRecognition);
-  }, 250);
+  // 「もう一度」になった瞬間からパルスを戻し、新しい認識器を直ちに開始する。
+  setSpeechButtonClass(button, "listening");
+  setSpeechButtonMessage(button, "聞いています…");
+  startSpeechRecognitionForButton(button);
+  if (speechRecognition) armSpeechAnswerTimeout(button, speechRecognition);
 }
 
 function armSpeechAnswerTimeout(button, recognition) {
@@ -4673,7 +4691,9 @@ function beginSpeechListening(button, recognition) {
 
 function startNextSpeechQuestion(currentButton) {
   const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
-  const nextButton = buttons[buttons.indexOf(currentButton) + 1];
+  const nextButton = buttons
+    .slice(buttons.indexOf(currentButton) + 1)
+    .find(button => button.dataset.correct !== "true");
   if (nextButton) startSpeechTest(nextButton);
 }
 
