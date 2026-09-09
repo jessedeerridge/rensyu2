@@ -4719,6 +4719,28 @@ function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConj
   });
 }
 
+function doesSpeechTailApproachAnswer(transcript, answers, kanjiReadingMap = [], isConjugation = false) {
+  const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
+  if (!normalizedTranscript) return true;
+
+  return answers.some(answer => {
+    const answerVariants = [answer, String(answer || "").replace(/^\s*あ[!！]\s*/, "")];
+    return answerVariants.some(answerVariant => {
+      const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation);
+      if (!normalizedAnswer) return false;
+
+      // 認識結果の冒頭に「えっと」などが混じっても、末尾が正解の
+      // 言いかけなら発話の途中とみなす。少なくとも末尾1文字が正解の
+      // 先頭と一致し、その末尾全体が正解の先頭部分であるかを調べる。
+      const maximumOverlap = Math.min(normalizedTranscript.length, normalizedAnswer.length);
+      for (let overlap = maximumOverlap; overlap >= 1; overlap -= 1) {
+        if (normalizedAnswer.startsWith(normalizedTranscript.slice(-overlap))) return true;
+      }
+      return false;
+    });
+  });
+}
+
 function getCellAnswerText(cell) {
   const copy = cell.cloneNode(true);
   copy.querySelectorAll("rt, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
@@ -5091,16 +5113,30 @@ function startSpeechRecognitionForButton(button) {
     if (gradeSpeechAnswer(button, true)) return;
     const latestResult = event.results[event.results.length - 1];
     if (!latestResult.isFinal) {
-      const answerLength = Math.min(
-        normalizeSpeechText(button.dataset.answer || "").length || Infinity,
-        normalizeSpeechText(button.dataset.answerReading || "").length || Infinity
+      let kanjiReadingMap = [];
+      try {
+        kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+      } catch (error) {
+        kanjiReadingMap = [];
+      }
+      const approachesAnswer = doesSpeechTailApproachAnswer(
+        transcript,
+        [button.dataset.answer, button.dataset.answerReading],
+        kanjiReadingMap,
+        button.dataset.conjugation === "true"
       );
-      if (answerLength <= 4) {
+      if (!approachesAnswer) {
+        // 正解の言いかけになっていない末尾は、誤答として一度録音を
+        // 切り上げる。誤答表示後の gradeSpeechAnswer が同じ問題を自動再開する。
         if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
         speechGradeTimer = setTimeout(() => {
           speechGradeTimer = null;
           if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
-        }, 250);
+        }, 350);
+      } else if (speechGradeTimer !== null) {
+        // 次の中間結果で正解の先頭に近づいた場合は、早まって誤答にしない。
+        clearTimeout(speechGradeTimer);
+        speechGradeTimer = null;
       }
       return;
     }
