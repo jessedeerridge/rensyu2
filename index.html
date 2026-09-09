@@ -50,8 +50,14 @@
     gap: 3px;
   }
 
-  .firebase-state { padding:2px 5px; border-radius:5px; background:rgba(255,255,255,.9); color:#b42318; font-size:9px; font-weight:900; }
-  .firebase-state.connected { color:#16803a; }
+  .firebase-state {
+    color: #888;
+    font-size: 15px;
+    font-weight: 900;
+    line-height: 1;
+  }
+
+  .firebase-state.connected { color: #fff; }
 
   .screen {
     min-height: 100vh;
@@ -2469,7 +2475,7 @@
 <body class="home-mode">
 
 <div class="firebase-control">
-  <span id="firebaseState" class="firebase-state">not connected</span>
+  <span id="firebaseState" class="firebase-state" role="status" aria-label="Firebase 非接続">╌/╌</span>
 </div>
 
 <div id="startNotice" class="start-notice-overlay" onclick="closeStartNotice()" role="button" aria-label="説明を閉じる">
@@ -4596,7 +4602,10 @@ function setFirebaseConnectionUi(connected) {
   firebaseConnected = connected;
   const state = document.getElementById("firebaseState");
   state?.classList.toggle("connected", connected);
-  if (state) state.textContent = connected ? "connected" : "not connected";
+  if (state) {
+    state.textContent = connected ? "╌✧╌" : "╌/╌";
+    state.setAttribute("aria-label", `Firebase ${connected ? "接続" : "非接続"}`);
+  }
 }
 
 async function connectFirebase() {
@@ -5056,6 +5065,12 @@ function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConj
 function getCellAnswerText(cell) {
   const copy = cell.cloneNode(true);
   copy.querySelectorAll("rt, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
+  return copy.textContent.trim();
+}
+
+function getCellPromptText(cell) {
+  const copy = cell.cloneNode(true);
+  copy.querySelectorAll("rt, .question-box, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
   return copy.textContent.trim();
 }
 
@@ -5815,7 +5830,7 @@ function makeTestTable() {
     // Vて・Vたでは単独の「する」「来る」だけを除外する。
     // 「勉強する」「持ってくる」などの複合動詞は通常どおり出題候補に残す。
     .filter(row => !(["Vて", "Vた"].includes(currentTableType)
-      && ["する", "来る", "くる"].includes(getCellAnswerText(row.cells[0]))))
+      && ["する", "来る", "くる"].includes(getCellPromptText(row.cells[0]))))
     // Vますのテストでは、ませんか・ましょうか・ましょうの練習行を出題しない。
     .filter(row => currentTableType !== "Vます" || getCellAnswerText(row.cells[row.cells.length - 1]).endsWith("ます"))
     // 中国語の固有名詞を含む歌手の問題は、聞くモードの音声テストには出題しない。
