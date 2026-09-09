@@ -5068,12 +5068,6 @@ function getCellAnswerText(cell) {
   return copy.textContent.trim();
 }
 
-function getCellPromptText(cell) {
-  const copy = cell.cloneNode(true);
-  copy.querySelectorAll("rt, .question-box, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
-  return copy.textContent.trim();
-}
-
 function getCellAnswerReading(cell) {
   const copy = cell.cloneNode(true);
   copy.querySelectorAll(".answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
@@ -5827,10 +5821,7 @@ function makeTestTable() {
   const rows = Array.from(sourceTable.querySelectorAll("tr"))
     .filter(row => !row.querySelector("th") && !row.classList.contains("group-row"))
     .filter(row => row.cells.length >= 2)
-    // Vて・Vたでは単独の「する」「来る」だけを除外する。
-    // 「勉強する」「持ってくる」などの複合動詞は通常どおり出題候補に残す。
-    .filter(row => !(["Vて", "Vた"].includes(currentTableType)
-      && ["する", "来る", "くる"].includes(getCellPromptText(row.cells[0]))))
+    .filter(row => !row.hasAttribute("data-test-excluded"))
     // Vますのテストでは、ませんか・ましょうか・ましょうの練習行を出題しない。
     .filter(row => currentTableType !== "Vます" || getCellAnswerText(row.cells[row.cells.length - 1]).endsWith("ます"))
     // 中国語の固有名詞を含む歌手の問題は、聞くモードの音声テストには出題しない。
@@ -6729,8 +6720,9 @@ function makeTeTable() {
 
   teFormData.forEach(row => {
     const rowClass = row[2] ? ` class="${row[2]}"` : "";
+    const testExcluded = row[0] === "する" || row[0] === "<ruby>来<rt>く</rt></ruby>る" ? " data-test-excluded" : "";
     html += `
-      <tr${rowClass}>
+      <tr${rowClass}${testExcluded}>
         <td>${makeWordCell(row[0])}</td>
         <td><span class="answer-text">${row[1]}</span></td>
       </tr>
@@ -6762,8 +6754,9 @@ function makeTaTable() {
 
   taFormData.forEach(row => {
     const rowClass = row[2] ? ` class="${row[2]}"` : "";
+    const testExcluded = row[0] === "する" || row[0] === "<ruby>来<rt>く</rt></ruby>る" ? " data-test-excluded" : "";
     html += `
-      <tr${rowClass}>
+      <tr${rowClass}${testExcluded}>
         <td>${makeWordCell(row[0])}</td>
         <td><span class="answer-text">${row[1]}</span></td>
       </tr>
