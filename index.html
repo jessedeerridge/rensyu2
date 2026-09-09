@@ -5416,7 +5416,8 @@ function startSpeechTest(button) {
     setSpeechButtonClass(activeSpeechButton);
   }
   activeSpeechButton = button;
-  setSpeechButtonClass(button);
+  // 認識開始を待たず、選んだ問題がすぐ分かるように選択表示にする。
+  setSpeechButtonClass(button, "listening");
   setSpeechButtonMessage(button, "マイクを準備しています…");
   button.querySelector(".test-status").textContent = "";
   startSpeechRecognitionForButton(button);
@@ -5447,7 +5448,10 @@ function beginTestQuestions() {
   startSpeechTestSession();
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
-  if (firstQuestion) startSpeechTest(firstQuestion);
+  if (firstQuestion) {
+    firstQuestion.focus({ preventScroll: true });
+    startSpeechTest(firstQuestion);
+  }
 }
 
 function confirmTestParticipant(event) {
