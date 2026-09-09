@@ -40,6 +40,32 @@
     touch-action: manipulation;
   }
 
+  .firebase-control {
+    position: fixed;
+    top: max(8px, env(safe-area-inset-top));
+    right: 8px;
+    z-index: 200;
+    display: grid;
+    justify-items: center;
+    gap: 3px;
+  }
+
+  .firebase-control button {
+    border: 0;
+    border-radius: 999px;
+    padding: 7px 10px;
+    background: #fff;
+    color: #555;
+    font: inherit;
+    font-size: 11px;
+    font-weight: 900;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  }
+
+  .firebase-control button.connected { background:#dcfce7; color:#16803a; }
+  .firebase-state { padding:2px 5px; border-radius:5px; background:rgba(255,255,255,.9); color:#b42318; font-size:9px; font-weight:900; }
+  .firebase-state.connected { color:#16803a; }
+
   .screen {
     min-height: 100vh;
     padding: 18px;
@@ -2438,6 +2464,11 @@
 
 <body class="home-mode">
 
+<div class="firebase-control">
+  <button id="firebaseToggle" type="button" onclick="toggleFirebaseConnection()">Firebase ON</button>
+  <span id="firebaseState" class="firebase-state">not connected</span>
+</div>
+
 <div id="startNotice" class="start-notice-overlay" onclick="closeStartNotice()" role="button" aria-label="説明を閉じる">
   <table class="start-notice-table">
     <tr>
@@ -4459,6 +4490,8 @@ let tableRandomized = false;
 let sequentialTableHtml = "";
 let testModeActive = false;
 const TEST_PARTICIPANT_NAME_KEY = "rensyuuTestParticipantName_v1";
+const TEST_RESULTS_STORAGE_KEY = "rensyuuQuizResults_v1";
+const TEST_PENDING_STORAGE_KEY = "rensyuuQuizPending_v1";
 let testParticipantConfirmed = false;
 let speechRecognition = null;
 let activeSpeechButton = null;
@@ -4476,6 +4509,117 @@ let speechInputFallbackMismatchTimer = null;
 let testCountdownTimer = null;
 let testCountdownDeadline = 0;
 let testSessionEnded = false;
+let testResultSaved = false;
+let firebaseConnected = false;
+let firebaseEnabled = false;
+let firebaseDatabase = null;
+let firebaseApi = null;
+let firebaseConnectionUnsubscribe = null;
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",
+  authDomain: "database-s-9e4b3.firebaseapp.com",
+  databaseURL: "https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "database-s-9e4b3",
+  storageBucket: "database-s-9e4b3.firebasestorage.app",
+  messagingSenderId: "13648984683",
+  appId: "1:13648984683:web:c782d2963c253df69b8f2e"
+};
+
+function safeFirebaseKey(value) {
+  return encodeURIComponent(String(value).trim()).replaceAll(".", "%2E").replaceAll("#", "%23").replaceAll("$", "%24").replaceAll("[", "%5B").replaceAll("]", "%5D").replaceAll("/", "%2F");
+}
+
+function readTestStorage(key, fallback) {
+  try { return JSON.parse(localStorage.getItem(key) || JSON.stringify(fallback)); }
+  catch (error) { return fallback; }
+}
+
+function writeTestStorage(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (error) { /* メモリ外でもゲームは継続する。 */ }
+}
+
+function getTestModeInfo() {
+  return {
+    mode: currentSection === "conjugation" ? "活用" : currentTableType,
+    conjugation: currentSection === "conjugation" ? currentTableType : ""
+  };
+}
+
+function saveTestResult(percent, reason) {
+  if (testResultSaved) return;
+  testResultSaved = true;
+  const name = getSavedTestParticipantName();
+  if (!name) return;
+  const info = getTestModeInfo();
+  const result = { id: `${Date.now()}_${Math.random().toString(36).slice(2,8)}`, name, mode: info.mode, conjugation: info.conjugation, percent: Math.round(percent), reason, achievedAt: Date.now() };
+  const results = readTestStorage(TEST_RESULTS_STORAGE_KEY, []);
+  results.push(result);
+  writeTestStorage(TEST_RESULTS_STORAGE_KEY, results.slice(-500));
+  const pending = readTestStorage(TEST_PENDING_STORAGE_KEY, []);
+  pending.push(result);
+  writeTestStorage(TEST_PENDING_STORAGE_KEY, pending);
+  if (firebaseConnected) flushPendingTestResults();
+}
+
+async function flushPendingTestResults() {
+  if (!firebaseConnected || !firebaseDatabase || !firebaseApi) return;
+  const pending = readTestStorage(TEST_PENDING_STORAGE_KEY, []);
+  for (const result of pending.slice()) {
+    const path = `quizResults/name_${safeFirebaseKey(result.name)}/${safeFirebaseKey(result.id)}`;
+    try {
+      await firebaseApi.set(firebaseApi.ref(firebaseDatabase, path), result);
+      const remaining = readTestStorage(TEST_PENDING_STORAGE_KEY, []).filter(item => item.id !== result.id);
+      writeTestStorage(TEST_PENDING_STORAGE_KEY, remaining);
+    } catch (error) {
+      if (firebaseApi && firebaseDatabase) firebaseApi.goOffline(firebaseDatabase);
+      setFirebaseConnectionUi(false);
+      break;
+    }
+  }
+}
+
+function setFirebaseConnectionUi(connected) {
+  firebaseConnected = connected;
+  const button = document.getElementById("firebaseToggle");
+  const state = document.getElementById("firebaseState");
+  button?.classList.toggle("connected", connected);
+  state?.classList.toggle("connected", connected);
+  if (button) button.textContent = firebaseEnabled ? "Firebase OFF" : "Firebase ON";
+  if (state) state.textContent = connected ? "connected" : "not connected";
+}
+
+async function toggleFirebaseConnection() {
+  if (firebaseEnabled) {
+    firebaseEnabled = false;
+    firebaseConnectionUnsubscribe?.();
+    firebaseConnectionUnsubscribe = null;
+    if (firebaseApi && firebaseDatabase) firebaseApi.goOffline(firebaseDatabase);
+    setFirebaseConnectionUi(false);
+    return;
+  }
+  firebaseEnabled = true;
+  const button = document.getElementById("firebaseToggle");
+  if (button) { button.disabled = true; button.textContent = "connecting..."; }
+  try {
+    const [appModule, databaseModule] = await Promise.all([
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
+    ]);
+    const app = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(firebaseConfig);
+    firebaseDatabase = databaseModule.getDatabase(app);
+    firebaseApi = databaseModule;
+    databaseModule.goOnline(firebaseDatabase);
+    firebaseConnectionUnsubscribe = databaseModule.onValue(databaseModule.ref(firebaseDatabase, ".info/connected"), snapshot => {
+      const connected = firebaseEnabled && snapshot.val() === true;
+      setFirebaseConnectionUi(connected);
+      if (connected) flushPendingTestResults();
+    });
+  } catch (error) {
+    firebaseEnabled = false;
+    setFirebaseConnectionUi(false);
+  } finally { if (button) button.disabled = false; }
+}
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4940,7 +5084,29 @@ function updateTestCountdown() {
   const seconds = String(remainingSeconds % 60).padStart(2, "0");
   button.textContent = `${minutes}:${seconds}`;
   button.setAttribute("aria-label", `残り時間 ${minutes}分${seconds}秒`);
-  if (remainingSeconds === 0) clearTestCountdown();
+  if (remainingSeconds === 0) finishTestAtTimeout();
+}
+
+function getCurrentTestPercent() {
+  const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
+  if (!buttons.length) return 0;
+  return buttons.filter(button => button.dataset.correct === "true").length / buttons.length * 100;
+}
+
+function finishTestAtTimeout() {
+  if (testSessionEnded) return;
+  testSessionEnded = true;
+  stopSpeechRecognition();
+  clearTestCountdown(false);
+  const percent = Math.round(getCurrentTestPercent());
+  saveTestResult(percent, "timeup");
+  const button = document.getElementById("testTimerBtn");
+  if (button) { button.textContent = `${percent}%`; button.setAttribute("aria-label", `時間切れ 達成度${percent}%`); }
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="test-start-overlay" id="testCongratulations" role="status" onclick="this.remove()">
+      <div class="test-start-panel test-congratulations">時間切れ<br>${escapeHtml(getSavedTestParticipantName())}さん ${percent}%達成</div>
+    </div>
+  `);
 }
 
 function startTestCountdown() {
@@ -4958,6 +5124,7 @@ function finishTestSuccessfullyIfComplete() {
   testSessionEnded = true;
   stopSpeechRecognition();
   clearTestCountdown();
+  saveTestResult(100, "complete");
   const name = getSavedTestParticipantName();
   document.body.insertAdjacentHTML("beforeend", `
     <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
@@ -5528,6 +5695,7 @@ function getSavedTestParticipantName() {
 
 function beginTestQuestions() {
   testSessionEnded = false;
+  testResultSaved = false;
   startSpeechTestSession();
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
