@@ -2445,9 +2445,15 @@
 
 按照规则连续说出来，让自己的大脑和嘴巴都逐渐适应吧。
 
-标有“？”的表达只会保存在同一个浏览器中。
+标有“？”的表达只会保存在同一个浏览器中。</td>
+    </tr>
+  </table>
+</div>
 
-从「活用・初级1」开始，请练习把内容组成句子并大声说出来。</td>
+<div id="conjugationLevelNotice" class="start-notice-overlay" onclick="closeConjugationLevelNotice()" role="button" aria-label="説明を閉じる" style="display: none;">
+  <table class="start-notice-table">
+    <tr>
+      <td>从「活用・初级1」开始，请练习把内容组成句子并大声说出来。</td>
     </tr>
   </table>
 </div>
@@ -2558,6 +2564,16 @@ function closeStartNotice() {
   if (notice) {
     notice.style.display = "none";
   }
+}
+
+function showConjugationLevelNotice() {
+  const notice = document.getElementById("conjugationLevelNotice");
+  if (notice) notice.style.display = "flex";
+}
+
+function closeConjugationLevelNotice() {
+  const notice = document.getElementById("conjugationLevelNotice");
+  if (notice) notice.style.display = "none";
 }
 
 
@@ -3043,6 +3059,7 @@ function openConjugationMenu() {
   document.getElementById("leftPageNav").style.display = "flex";
   document.getElementById("rightPageNav").style.display = "flex";
   updateMenuPage();
+  if (currentMenuPage === 1) showConjugationLevelNotice();
   requestAnimationFrame(renderQuestionMemoLayer);
   window.scrollTo(0, 0);
 }
@@ -3234,6 +3251,7 @@ function changeMenuPage(direction) {
   if (nextPage < 0 || nextPage >= menuPageNames.length) return;
   currentMenuPage = nextPage;
   updateMenuPage();
+  if (currentSection === "conjugation" && currentMenuPage === 1) showConjugationLevelNotice();
   renderQuestionMemoLayer();
   window.scrollTo(0, 0);
 }
