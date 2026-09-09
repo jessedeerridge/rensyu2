@@ -4578,6 +4578,7 @@ async function toggleFirebaseConnection() {
     if (firebaseConnectedUnsubscribe) firebaseConnectedUnsubscribe();
     firebaseConnectedUnsubscribe = null;
     firebaseConnection.goOffline(firebaseConnection.db);
+    await firebaseConnection.signOut(firebaseConnection.auth).catch(() => {});
     firebaseConnection = null;
     toggle.textContent = "Firebase OFF";
     toggle.setAttribute("aria-pressed", "false");
@@ -4588,14 +4589,24 @@ async function toggleFirebaseConnection() {
   toggle.disabled = true;
   state.textContent = "connecting…";
   try {
-    const [appModule, databaseModule] = await Promise.all([
+    const [appModule, databaseModule, authModule] = await Promise.all([
       import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js"),
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js")
     ]);
     const app = appModule.getApps().length ? appModule.getApps()[0] : appModule.initializeApp(firebaseConfig);
+    const auth = authModule.getAuth(app);
+    if (!auth.currentUser) {
+      try {
+        await authModule.signInAnonymously(auth);
+      } catch (error) {
+        // 公開書き込みルールのDBでも使えるよう、匿名認証が無効な場合は未認証で接続を続ける。
+        console.warn("Firebase anonymous sign-in failed; trying database rules without auth:", error);
+      }
+    }
     const db = databaseModule.getDatabase(app);
     databaseModule.goOnline(db);
-    firebaseConnection = { db, ...databaseModule };
+    firebaseConnection = { db, auth, signOut: authModule.signOut, ...databaseModule };
     toggle.textContent = "Firebase ON";
     toggle.setAttribute("aria-pressed", "true");
     firebaseConnectedUnsubscribe = databaseModule.onValue(databaseModule.ref(db, ".info/connected"), snapshot => {
