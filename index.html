@@ -4615,7 +4615,63 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["休んだ", "寝た", "やすんだ", "ねた"],
   ["ています", "てます"],
   ["ていません", "てません"],
-  ["でいます", "でます"]
+  ["でいます", "でます"],
+  ["カレー", "カレー屋", "カレーや"],
+  ["という", "と言う", "とゆう"],
+  ["チェック", "確認"],
+  ["どういう", "どう言う", "どうゆう"],
+  ["どうやって", "どう"],
+  ["どこにありますか", "どこですか"],
+  ["住んでいますか", "住んでいるんですか"],
+  ["もらいましたか", "もらったんですか"],
+  ["持って来ましたか", "持ってきましたか", "持って来たんですか", "持ってきたんですか"],
+  ["いますか", "いるんですか"],
+  ["していますか", "しているんですか"],
+  ["海外", "外国", "かいがい", "がいこく"],
+  ["もう一度", "もう一回", "もういちど", "もういっかい"],
+  [
+    "安い肉を売っているお店", "安い肉を売っている店", "安い肉のお店", "安い肉の店",
+    "肉が安い店", "肉が安いお店", "やすいにくをうっているおみせ", "やすいにくをうっているみせ",
+    "やすいにくのおみせ", "やすいにくのみせ", "にくがやすいみせ", "にくがやすいおみせ"
+  ],
+  ["お店", "店", "みせ", "おみせ"],
+  ["体", "健康", "からだ", "けんこう"],
+  ["ジュース", "飲み物", "のみもの"],
+  ["何", "なに"],
+  [
+    "もう宿題をしましたか", "もう宿題はしましたか", "宿題をもうしましたか", "宿題はもうしましたか",
+    "もう宿題を終わりましたか", "もう宿題は終わりましたか", "宿題をもう終わりましたか", "宿題はもう終わりましたか",
+    "もう宿題をしていますか", "もう宿題はしていますか", "宿題をもうしていますか", "宿題はもうしていますか",
+    "もう宿題を終わっていますか", "もう宿題は終わっていますか", "宿題をもう終わっていますか", "宿題はもう終わっていますか",
+    "もう終わっていますか", "もう終わりましたか", "もうしましたか",
+    "もうしゅくだいをしましたか", "もうしゅくだいはしましたか", "しゅくだいをもうしましたか", "しゅくだいはもうしましたか",
+    "もうしゅくだいをおわりましたか", "もうしゅくだいはおわりましたか", "しゅくだいをもうおわりましたか", "しゅくだいはもうおわりましたか",
+    "もうしゅくだいをしていますか", "もうしゅくだいはしていますか", "しゅくだいをもうしていますか", "しゅくだいはもうしていますか",
+    "もうしゅくだいをおわっていますか", "もうしゅくだいはおわっていますか", "しゅくだいをもうおわっていますか", "しゅくだいはもうおわっていますか",
+    "もうおわっていますか", "もうおわりましたか", "もうしましたか"
+  ],
+  [
+    "もうご飯を食べましたか", "もうご飯は食べましたか", "ご飯をもう食べましたか", "ご飯はもう食べましたか", "もう食べましたか",
+    "もうごはんをたべましたか", "もうごはんはたべましたか", "ごはんをもうたべましたか", "ごはんはもうたべましたか", "もうたべましたか"
+  ],
+  [
+    "トイレに行ってもいいですか", "トイレに行って来てもいいですか", "トイレに行ってきてもいいですか",
+    "といれにいってもいいですか", "といれにいってきてもいいですか"
+  ],
+  // 「つなぐ」テストで、音声認識の漢字・かな・カタカナ表記の揺れを許容する。
+  ["わか", "分か"],
+  ["嬉し", "うれし"],
+  ["疲れ", "つかれ"],
+  ["面白", "おもしろ"],
+  ["始め", "初め", "はじめ"],
+  ["綺麗", "きれい"],
+  ["成", "な"],
+  ["安", "やす"],
+  ["蟹", "かに", "カニ"],
+  ["海老", "蝦", "えび", "エビ"],
+  ["良", "よ"],
+  ["要", "い"],
+  ["賑やか", "にぎやか"]
 ];
 
 const SPEECH_EQUIVALENT_ALIASES = SPEECH_EQUIVALENT_GROUPS
@@ -4806,7 +4862,7 @@ function updateTestCountdown() {
 
 function startTestCountdown() {
   clearTestCountdown(false);
-  const durationSeconds = currentSection === "conjugation" ? 60 : 180;
+  const durationSeconds = currentSection === "conjugation" ? 90 : 180;
   testCountdownDeadline = Date.now() + durationSeconds * 1000;
   updateTestCountdown();
   testCountdownTimer = setInterval(updateTestCountdown, 250);
@@ -5413,7 +5469,9 @@ function makeTestTable() {
   if (!sourceTable) return false;
   const rows = Array.from(sourceTable.querySelectorAll("tr"))
     .filter(row => !row.querySelector("th") && !row.classList.contains("group-row"))
-    .filter(row => row.cells.length >= 2);
+    .filter(row => row.cells.length >= 2)
+    // 中国語の固有名詞を含む歌手の問題は、聞くモードの音声テストには出題しない。
+    .filter(row => currentTableType !== "聞く" || !getCellAnswerText(row.cells[row.cells.length - 1]).includes("歌手を知っていますか"));
   if (!rows.length) return false;
   const isConjugation = currentSection === "conjugation";
 
@@ -5426,7 +5484,7 @@ function makeTestTable() {
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
     return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript">タップして話す 🎤</span><span class="test-status"></span></button></td></tr>`;
   }).join("");
-  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:00" : "3:00"}</button><div class="scroll-extra-y"></div>`;
+  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:30" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
 }
 
