@@ -707,6 +707,34 @@
     background: #fff7fb;
   }
 
+  .speech-input-prompt {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    color: #777;
+    font-size: 14px;
+    font-weight: 700;
+    pointer-events: none;
+    transition: opacity 0.15s ease;
+  }
+
+  .speech-input-mic {
+    width: 15px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-width: 1.8;
+  }
+
+  .speech-input-inline input:not(:placeholder-shown) + .speech-input-prompt {
+    opacity: 0;
+  }
+
   .speech-input-inline input {
     display: block;
     width: 100%;
@@ -4908,7 +4936,14 @@ function openSpeechInputFallback(button) {
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
-      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードのマイクボタンを押して開始" placeholder="🎤を押して開始">
+      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードのマイクボタンを押して開始" placeholder=" ">
+      <span class="speech-input-prompt" aria-hidden="true">
+        <svg class="speech-input-mic" viewBox="0 0 16 22">
+          <rect x="5" y="1" width="6" height="12" rx="3"></rect>
+          <path d="M2.5 10.5v.8a5.5 5.5 0 0 0 11 0v-.8M8 16.8V21M5.3 21h5.4"></path>
+        </svg>
+        <span>を押して開始</span>
+      </span>
     </form>
   `);
   const input = document.getElementById("speechInputFallbackText");
@@ -5113,7 +5148,7 @@ function enableSpeechInputFallback(button, _reason, openImmediately = false) {
     if (answerButton.dataset.correct !== "true") answerButton.dataset.speechFallback = "true";
   });
   setSpeechButtonClass(button);
-  setSpeechButtonMessage(button, "タップして話す 🎤");
+  setSpeechButtonMessage(button, "");
   button.querySelector(".test-status").textContent = "";
   activeSpeechButton = null;
   if (openImmediately) openSpeechInputFallback(button);
@@ -5227,7 +5262,7 @@ function skipSpeechQuestion(target, transcript) {
   setSpeechButtonClass(target);
   target.querySelector(".test-transcript").textContent = target.dataset.correct === "true"
     ? target.dataset.answer
-    : transcript;
+    : "";
   target.querySelector(".test-status").textContent = "";
   activeSpeechButton = null;
   activeSpeechSegments.clear();
@@ -5267,7 +5302,7 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
   } else {
     if (target.dataset.speechFallback === "true") {
       // 誤答を消した空欄で同じ問題を再開する。
-      setSpeechButtonMessage(target, "タップして話す 🎤");
+      setSpeechButtonMessage(target, "");
       target.querySelector(".test-status").textContent = "× もう一度音声入力";
       moveSpeechInputFallback(target);
       return correct;
@@ -5484,7 +5519,7 @@ function makeTestTable() {
     const answer = getCellAnswerText(row.cells[row.cells.length - 1]);
     const answerReading = getCellAnswerReading(row.cells[row.cells.length - 1]);
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
-    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript">タップして話す 🎤</span><span class="test-status"></span></button></td></tr>`;
+    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
   }).join("");
   document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:30" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
