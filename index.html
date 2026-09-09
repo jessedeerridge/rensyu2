@@ -583,11 +583,6 @@
     color: #ff4f9e;
   }
 
-  .test-table tr.selected-question td:first-child {
-    background: #fff7fb;
-    box-shadow: inset 4px 0 0 #ff6fae;
-  }
-
   .test-answer-button.listening {
     animation: slowPulse 1.2s ease-in-out infinite;
   }
@@ -4478,7 +4473,6 @@ function selectSpeechTestQuestion(button) {
     answerButton.dataset.selected = answerButton === button ? "true" : "false";
     answerButton.setAttribute("aria-pressed", answerButton === button ? "true" : "false");
     answerButton.classList.toggle("selected", answerButton === button);
-    answerButton.closest("tr")?.classList.toggle("selected-question", answerButton === button);
   });
 }
 
@@ -4560,6 +4554,8 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["陳", "珍"],
   // 「会います」がカタカナや漢字・かな混じりで認識された場合も許容する。
   ["会います", "あいます", "アイマス", "アイます"],
+  // 全モードで「おいし」と「美味し」の表記揺れを許容する。
+  ["おいし", "美味し"],
   ["日本", "旅行"],
   ["このケーキ屋", "ケーキ屋", "このけーきや", "けーきや"],
   ["とき", "時"],
@@ -5493,11 +5489,9 @@ function beginTestQuestions() {
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
   if (firstQuestion) {
-    // 音声入力を開始できない環境でも、先に1問目の選択表示を確定する。
-    selectSpeechTestQuestion(firstQuestion);
-    firstQuestion.focus({ preventScroll: true });
-    // 手動で問題を選んだときと同じ経路を通し、開始直後から1問目を選択状態にする。
-    firstQuestion.click();
+    // ソフトウェアキーボードは、ユーザー操作中に入力欄へ直接フォーカスしないと
+    // 起動しない端末があるため、疑似クリックを介さずここで入力欄を開く。
+    enableSpeechInputFallback(firstQuestion, "", true);
   }
 }
 
