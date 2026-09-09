@@ -4383,9 +4383,7 @@ let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
 let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
-let speechInputFallbackGradeTimer = null;
 let speechInputFallbackAcceptAfter = 0;
-let speechInputFallbackComposing = false;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4751,10 +4749,7 @@ function stopSpeechRecognition() {
 }
 
 function closeSpeechInputFallback(clearTarget = true) {
-  if (speechInputFallbackGradeTimer !== null) clearTimeout(speechInputFallbackGradeTimer);
-  speechInputFallbackGradeTimer = null;
   speechInputFallbackAcceptAfter = 0;
-  speechInputFallbackComposing = false;
   const input = document.getElementById("speechInputFallbackText");
   if (input) {
     input.value = "";
@@ -4786,31 +4781,24 @@ function openSpeechInputFallback(button) {
 
 function bindSpeechInputFallbackInput(input) {
   if (!input) return;
-  input.addEventListener("input", event => {
+  input.addEventListener("input", () => {
     if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
-    handleSpeechInputFallbackInput(input, !event.isComposing && !speechInputFallbackComposing);
-  });
-  input.addEventListener("compositionstart", () => {
-    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
-    speechInputFallbackComposing = true;
-    cancelSpeechInputFallbackGrade();
+    handleSpeechInputFallbackInput(input);
   });
   input.addEventListener("compositionupdate", () => {
     queueMicrotask(() => {
       // Baidu keyboard keeps dictated text in an IME composition. Correct answers
       // may be accepted immediately, but partial text must not be graded as wrong.
-      if (input.isConnected) handleSpeechInputFallbackInput(input, false);
+      if (input.isConnected) handleSpeechInputFallbackInput(input);
     });
   });
   input.addEventListener("compositionend", () => {
     if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
-    speechInputFallbackComposing = false;
-    handleSpeechInputFallbackInput(input, true);
+    handleSpeechInputFallbackInput(input);
   });
 }
 
 function resetSpeechInputFallbackInput() {
-  cancelSpeechInputFallbackGrade();
   const input = document.getElementById("speechInputFallbackText");
   if (!input) return null;
   // Replacing the focused element terminates the old IME composition. Clearing
@@ -4818,14 +4806,12 @@ function resetSpeechInputFallbackInput() {
   const replacement = input.cloneNode();
   replacement.value = "";
   input.replaceWith(replacement);
-  speechInputFallbackComposing = false;
   bindSpeechInputFallbackInput(replacement);
   replacement.focus();
   return replacement;
 }
 
 function moveSpeechInputFallback(button) {
-  cancelSpeechInputFallbackGrade();
   const editor = document.getElementById("speechInputFallbackEditor");
   const input = document.getElementById("speechInputFallbackText");
   if (!editor || !input) {
@@ -4844,20 +4830,18 @@ function moveSpeechInputFallback(button) {
   resetInput?.focus();
 }
 
-function handleSpeechInputFallbackInput(input, allowDelayedGrade = true) {
+function handleSpeechInputFallbackInput(input) {
   if (Date.now() < speechInputFallbackAcceptAfter) {
     input.value = "";
-    cancelSpeechInputFallbackGrade();
     return;
   }
   const transcript = input?.value.trim() || "";
   if (transcript && (isSpeechSkipRequest(transcript) || isSpeechInputFallbackAnswerCorrect(transcript))) {
-    cancelSpeechInputFallbackGrade();
     submitSpeechInputFallback();
-    return;
   }
-  if (allowDelayedGrade) scheduleSpeechInputFallbackGrade(input);
-  else cancelSpeechInputFallbackGrade();
+  // キーボードの音声入力は発話途中でもinputイベントが途切れることがある。
+  // 無音時間だけで誤答を確定すると入力欄の差し替えでマイクまで終了するため、
+  // 正解・スキップ以外はキーボードの「完了」（form submit）まで待つ。
 }
 
 function isSpeechInputFallbackAnswerCorrect(transcript) {
@@ -4877,27 +4861,8 @@ function isSpeechInputFallbackAnswerCorrect(transcript) {
   );
 }
 
-function cancelSpeechInputFallbackGrade() {
-  if (speechInputFallbackGradeTimer !== null) clearTimeout(speechInputFallbackGradeTimer);
-  speechInputFallbackGradeTimer = null;
-}
-
-function scheduleSpeechInputFallbackGrade(input) {
-  cancelSpeechInputFallbackGrade();
-  if (!input?.value.trim()) return;
-  const answers = [speechInputFallbackButton?.dataset.answer, speechInputFallbackButton?.dataset.answerReading]
-    .filter(Boolean);
-  const shortestAnswerLength = Math.min(...answers.map(answer => normalizeSpeechText(answer).length));
-  const gradeDelay = shortestAnswerLength <= 4 ? 250 : 500;
-  speechInputFallbackGradeTimer = setTimeout(() => {
-    speechInputFallbackGradeTimer = null;
-    submitSpeechInputFallback();
-  }, gradeDelay);
-}
-
 function submitSpeechInputFallback(event) {
   event?.preventDefault();
-  cancelSpeechInputFallbackGrade();
   const button = speechInputFallbackButton;
   const input = document.getElementById("speechInputFallbackText");
   const transcript = input?.value.trim() || "";
