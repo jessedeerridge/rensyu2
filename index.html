@@ -2876,7 +2876,7 @@ const connectPracticeData = [
     ]
   },
   {
-    title: "～ので（理由）",
+    title: "～から・ので（理由）",
     rows: [
       ["雨が降っている・傘を持っていきます。", "雨が降っているから、傘を持っていきます。"],
       ["お腹がすいた・ご飯を買ってきます。", "お腹がすいたから、ご飯を買ってきます。"],
@@ -4686,6 +4686,9 @@ const SPEECH_EQUIVALENT_GROUPS = [
     "トイレに行ってもいいですか", "トイレに行って来てもいいですか", "トイレに行ってきてもいいですか",
     "といれにいってもいいですか", "といれにいってきてもいいですか"
   ],
+  // 「つなぐ」テストで、順序を表す同義表現を許容する。
+  ["食べてから", "食べた後で", "食べたあとで"],
+  ["入って", "入ってから", "入った後で", "入ったあとで"],
   // 「つなぐ」テストで、音声認識の漢字・かな・カタカナ表記の揺れを許容する。
   ["わか", "分か"],
   ["嬉し", "うれし"],
@@ -4936,8 +4939,9 @@ function openSpeechInputFallback(button) {
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
-      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードのマイクボタンを押して開始" placeholder=" ">
+      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードの右下のマイクボタンを押して開始" placeholder=" ">
       <span class="speech-input-prompt" aria-hidden="true">
+        <span>右下の</span>
         <svg class="speech-input-mic" viewBox="0 0 16 22">
           <rect x="5" y="1" width="6" height="12" rx="3"></rect>
           <path d="M2.5 10.5v.8a5.5 5.5 0 0 0 11 0v-.8M8 16.8V21M5.3 21h5.4"></path>
@@ -5889,7 +5893,7 @@ function makeConnectSeparator(groupTitle, rowIndex = 0) {
   if (groupTitle === "～で") return `<span class="connect-separator connect-separator-square connect-separator-fast"><span>▶</span><span>▶</span></span>`;
   if (groupTitle === "～けど・ですが" || groupTitle === "ですけど・ですが") return `<span class="connect-separator connect-separator-square connect-separator-contrast"><span class="bidi-arrow"><span class="bidi-arrow-left"></span><span class="bidi-arrow-right"></span></span></span>`;
   if (groupTitle === "Vて（順序）" || groupTitle === "➡") return `<span class="connect-separator connect-separator-bold-arrow">➡</span>`;
-  if (groupTitle === "～ので（理由）" || groupTitle === "理由") return `<span class="connect-separator connect-separator-square connect-separator-fast connect-separator-soft-blue"><span>▶</span><span>▶</span></span>`;
+  if (groupTitle === "～から・ので（理由）" || groupTitle === "理由") return `<span class="connect-separator connect-separator-square connect-separator-fast connect-separator-soft-blue"><span>▶</span><span>▶</span></span>`;
   if (groupTitle === "～前に・～てから" || groupTitle === "前に・てから") {
     const isBefore = rowIndex < 2;
     return `<span class="connect-separator connect-separator-before-after ${isBefore ? "is-before" : "is-after"}"><span class="connect-separator-before-after-label">${isBefore ? "before" : "after"}</span></span>`;
@@ -5964,7 +5968,7 @@ function makeConnectTable() {
 
     group.rows.forEach(([prompt, answer], rowIndex) => {
       const answerHtml = addFurigana(compactJapanese(escapeHtml(answer)));
-      const isReasonGroup = group.title === "～ので（理由）" || group.title === "理由";
+      const isReasonGroup = group.title === "～から・ので（理由）" || group.title === "理由";
       const displayedAnswer = isReasonGroup ? addReasonKaraNote(answerHtml) : answerHtml;
 
       html += `
