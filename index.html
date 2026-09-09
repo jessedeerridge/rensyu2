@@ -4556,6 +4556,8 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["会います", "あいます", "アイマス", "アイます"],
   // 全モードで「おいし」と「美味し」の表記揺れを許容する。
   ["おいし", "美味し"],
+  // 全モードで「誰」と「だれ」の表記揺れを許容する。
+  ["誰", "だれ"],
   ["日本", "旅行"],
   ["このケーキ屋", "ケーキ屋", "このけーきや", "けーきや"],
   ["とき", "時"],
@@ -4852,11 +4854,21 @@ function isOrderedSpeechMatch(transcript, answer) {
   return false;
 }
 
+function getSpeechAnswerVariants(answer) {
+  const source = String(answer || "");
+  const variants = [source, source.replace(/^\s*あ[!！]\s*/, "")];
+  const normalized = normalizeSpeechText(source);
+  if (["まだジュースがありますか", "まだカレーがありますか"].includes(normalized)) {
+    variants.push("まだありますか");
+  }
+  return variants;
+}
+
 function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConjugation = false) {
   const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
   return answers.some(answer => {
     // 問題文の注意喚起として付けた冒頭の「あ！」は、発話しなくても採点に影響させない。
-    const answerVariants = [answer, String(answer || "").replace(/^\s*あ[!！]\s*/, "")];
+    const answerVariants = getSpeechAnswerVariants(answer);
     return answerVariants.some(answerVariant => {
       const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation);
       if (!normalizedAnswer) return false;
@@ -5046,7 +5058,7 @@ function getSpeechInputFallbackAnswers(button) {
   const isConjugation = button?.dataset.conjugation === "true";
   return [button?.dataset.answer, button?.dataset.answerReading]
     .filter(Boolean)
-    .flatMap(answer => [answer, String(answer).replace(/^\s*あ[!！]\s*/, "")])
+    .flatMap(getSpeechAnswerVariants)
     .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation))
     .filter(Boolean);
 }
@@ -5107,8 +5119,8 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
 
 function shouldPromptForJapaneseKeyboard(transcript) {
   const text = String(transcript || "").trim();
-  if (!text || /[\u3040-\u30ff]/.test(text)) return false;
-  return /[\p{L}\p{N}]/u.test(text);
+  if (!text || /[\u3040-\u30ff\u3400-\u9fff]/.test(text)) return false;
+  return /[a-z0-9]/i.test(text);
 }
 
 function handleSpeechInputFallbackInput(input, isComposing = false) {
