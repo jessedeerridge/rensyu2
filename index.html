@@ -5086,6 +5086,12 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
   });
 }
 
+function shouldPromptForJapaneseKeyboard(transcript) {
+  const text = String(transcript || "").trim();
+  if (!text || /[\u3040-\u30ff]/.test(text)) return false;
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 function handleSpeechInputFallbackInput(input, isComposing = false) {
   clearSpeechInputFallbackMismatchTimer();
   if (Date.now() < speechInputFallbackAcceptAfter) {
@@ -5109,6 +5115,11 @@ function handleSpeechInputFallbackInput(input, isComposing = false) {
       || speechInputFallbackButton !== expectedButton
       || input.value.trim() !== expectedTranscript
       || isSpeechInputFallbackPotentialMatch(expectedTranscript, expectedButton)) return;
+    if (shouldPromptForJapaneseKeyboard(expectedTranscript)) {
+      resetSpeechInputFallbackInput();
+      window.alert("日本語キーボードに変えてください");
+      return;
+    }
     submitSpeechInputFallback();
   }, 700);
 }
@@ -5309,9 +5320,10 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
     if (!finishTestSuccessfullyIfComplete()) startNextSpeechQuestion(target);
   } else {
     if (target.dataset.speechFallback === "true") {
-      // 誤答を消した空欄で同じ問題を再開する。
+      // 誤答表示を残さず、空欄で同じ問題を再開する。
+      setSpeechButtonClass(target);
       setSpeechButtonMessage(target, "");
-      target.querySelector(".test-status").textContent = "× もう一度音声入力";
+      target.querySelector(".test-status").textContent = "";
       moveSpeechInputFallback(target);
       return correct;
     }
