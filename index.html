@@ -4385,6 +4385,7 @@ let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackGradeTimer = null;
 let speechInputFallbackAcceptAfter = 0;
+let speechInputFallbackComposing = false;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4753,6 +4754,7 @@ function closeSpeechInputFallback(clearTarget = true) {
   if (speechInputFallbackGradeTimer !== null) clearTimeout(speechInputFallbackGradeTimer);
   speechInputFallbackGradeTimer = null;
   speechInputFallbackAcceptAfter = 0;
+  speechInputFallbackComposing = false;
   const input = document.getElementById("speechInputFallbackText");
   if (input) {
     input.value = "";
@@ -4778,15 +4780,48 @@ function openSpeechInputFallback(button) {
   `);
   const input = document.getElementById("speechInputFallbackText");
   speechInputFallbackAcceptAfter = 0;
-  input?.addEventListener("input", () => handleSpeechInputFallbackInput(input));
-  input?.addEventListener("compositionstart", cancelSpeechInputFallbackGrade);
-  input?.addEventListener("compositionupdate", () => {
+  bindSpeechInputFallbackInput(input);
+  input?.focus();
+}
+
+function bindSpeechInputFallbackInput(input) {
+  if (!input) return;
+  input.addEventListener("input", event => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    handleSpeechInputFallbackInput(input, !event.isComposing && !speechInputFallbackComposing);
+  });
+  input.addEventListener("compositionstart", () => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    speechInputFallbackComposing = true;
+    cancelSpeechInputFallbackGrade();
+  });
+  input.addEventListener("compositionupdate", () => {
     queueMicrotask(() => {
-      if (input.isConnected) handleSpeechInputFallbackInput(input);
+      // Baidu keyboard keeps dictated text in an IME composition. Correct answers
+      // may be accepted immediately, but partial text must not be graded as wrong.
+      if (input.isConnected) handleSpeechInputFallbackInput(input, false);
     });
   });
-  input?.addEventListener("compositionend", () => handleSpeechInputFallbackInput(input));
-  input?.focus();
+  input.addEventListener("compositionend", () => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    speechInputFallbackComposing = false;
+    handleSpeechInputFallbackInput(input, true);
+  });
+}
+
+function resetSpeechInputFallbackInput() {
+  cancelSpeechInputFallbackGrade();
+  const input = document.getElementById("speechInputFallbackText");
+  if (!input) return null;
+  // Replacing the focused element terminates the old IME composition. Clearing
+  // input.value alone lets Baidu keyboard restore its pending transcription.
+  const replacement = input.cloneNode();
+  replacement.value = "";
+  input.replaceWith(replacement);
+  speechInputFallbackComposing = false;
+  bindSpeechInputFallbackInput(replacement);
+  replacement.focus();
+  return replacement;
 }
 
 function moveSpeechInputFallback(button) {
@@ -4798,18 +4833,18 @@ function moveSpeechInputFallback(button) {
     return;
   }
   speechInputFallbackButton?.setAttribute("aria-expanded", "false");
-  input.value = "";
+  const resetInput = resetSpeechInputFallbackInput();
   // キーボード音声入力の終了直後に届く前問の末尾は、次問の回答として受け付けない。
   speechInputFallbackAcceptAfter = Date.now() + 400;
   speechInputFallbackButton = button;
   activeSpeechButton = button;
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentElement("afterend", editor);
-  // フォーカス中の同じinput要素を移動することで、モバイルキーボードを閉じずに次へ進む。
-  input.focus();
+  // 同じイベント内で新しいinputへフォーカスを移し、キーボードを表示したままにする。
+  resetInput?.focus();
 }
 
-function handleSpeechInputFallbackInput(input) {
+function handleSpeechInputFallbackInput(input, allowDelayedGrade = true) {
   if (Date.now() < speechInputFallbackAcceptAfter) {
     input.value = "";
     cancelSpeechInputFallbackGrade();
@@ -4821,7 +4856,8 @@ function handleSpeechInputFallbackInput(input) {
     submitSpeechInputFallback();
     return;
   }
-  scheduleSpeechInputFallbackGrade(input);
+  if (allowDelayedGrade) scheduleSpeechInputFallbackGrade(input);
+  else cancelSpeechInputFallbackGrade();
 }
 
 function isSpeechInputFallbackAnswerCorrect(transcript) {
