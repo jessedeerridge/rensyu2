@@ -4945,7 +4945,7 @@ function updateTestCountdown() {
 
 function startTestCountdown() {
   clearTestCountdown(false);
-  const durationSeconds = currentSection === "conjugation" ? 90 : 180;
+  const durationSeconds = currentSection === "conjugation" ? 80 : 180;
   testCountdownDeadline = Date.now() + durationSeconds * 1000;
   updateTestCountdown();
   testCountdownTimer = setInterval(updateTestCountdown, 250);
@@ -5609,7 +5609,7 @@ function makeTestTable() {
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
     return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" data-selected="false" aria-pressed="false" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
   }).join("");
-  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:30" : "3:00"}</button><div class="scroll-extra-y"></div>`;
+  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:20" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
 }
 
