@@ -670,12 +670,29 @@
   }
 
   .test-start-panel.test-congratulations {
+    position: relative;
+    overflow: hidden;
     border-width: 6px;
     text-align: center;
     color: #ff4f9e;
     font-size: 25px;
     font-weight: 900;
     line-height: 1.55;
+  }
+
+  .test-congratulations-content {
+    position: relative;
+    z-index: 1;
+  }
+
+  .test-congratulations-sakura {
+    position: absolute;
+    z-index: 0;
+    opacity: 0.13;
+    font-size: 76px;
+    line-height: 1;
+    pointer-events: none;
+    user-select: none;
   }
 
   .test-start-overlay {
@@ -5100,20 +5117,17 @@ function getCurrentTestPercent() {
   return buttons.filter(button => button.dataset.correct === "true").length / buttons.length * 100;
 }
 
+function recordCurrentTestResult(reason) {
+  if (!testModeActive || testResultSaved) return;
+  const buttons = document.querySelectorAll("#tableArea .test-answer-button");
+  if (!buttons.length) return;
+  saveTestResult(getCurrentTestPercent(), reason);
+}
+
 function finishTestAtTimeout() {
-  if (testSessionEnded) return;
-  testSessionEnded = true;
-  stopSpeechRecognition();
-  clearTestCountdown(false);
-  const percent = Math.round(getCurrentTestPercent());
-  saveTestResult(percent, "timeup");
-  const button = document.getElementById("testTimerBtn");
-  if (button) { button.textContent = `${percent}%`; button.setAttribute("aria-label", `時間切れ 達成度${percent}%`); }
-  document.body.insertAdjacentHTML("beforeend", `
-    <div class="test-start-overlay" id="testCongratulations" role="status" onclick="this.remove()">
-      <div class="test-start-panel test-congratulations">時間切れ<br>${escapeHtml(getSavedTestParticipantName())}さん ${percent}%達成</div>
-    </div>
-  `);
+  if (testResultSaved) return;
+  recordCurrentTestResult("timeup");
+  clearTestCountdown();
 }
 
 function startTestCountdown() {
@@ -5133,9 +5147,16 @@ function finishTestSuccessfullyIfComplete() {
   clearTestCountdown();
   saveTestResult(100, "complete");
   const name = getSavedTestParticipantName();
+  const sakura = Array.from({ length: 5 }, () => {
+    const left = Math.round(Math.random() * 100);
+    const top = Math.round(Math.random() * 100);
+    const rotation = Math.round(Math.random() * 90 - 45);
+    const scale = (0.75 + Math.random() * 0.65).toFixed(2);
+    return `<span class="test-congratulations-sakura" aria-hidden="true" style="left:${left}%;top:${top}%;transform:translate(-50%,-50%) rotate(${rotation}deg) scale(${scale})">🌸</span>`;
+  }).join("");
   document.body.insertAdjacentHTML("beforeend", `
     <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
-      <div class="test-start-panel test-congratulations">${escapeHtml(name)}さん、<br>すごいですね！</div>
+      <div class="test-start-panel test-congratulations">${sakura}<div class="test-congratulations-content">${escapeHtml(name)}さん、<br>すごいですね！</div></div>
     </div>
   `);
   return true;
@@ -5750,6 +5771,7 @@ function showTestStartPanel() {
 }
 
 function revealTestAnswers() {
+  recordCurrentTestResult("reveal");
   testSessionEnded = true;
   stopSpeechRecognition();
   clearTestCountdown();
@@ -5790,6 +5812,7 @@ function makeTestTable() {
 
 function toggleTestMode() {
   if (testModeActive) {
+    recordCurrentTestResult("leave");
     testSessionEnded = true;
     stopSpeechRecognition();
     clearTestCountdown();
@@ -6258,6 +6281,7 @@ function showPlaceholderTable(title, message, returnSection = "home") {
 }
 
 function showTable(type, focusKey = "") {
+  recordCurrentTestResult("leave");
   stopSpeechRecognition();
   clearTestCountdown();
   document.getElementById("testCongratulations")?.remove();
@@ -6407,6 +6431,7 @@ function scrollToQuestionKey(key) {
 }
 
 function backMenu() {
+  recordCurrentTestResult("leave");
   stopSpeechRecognition();
   clearTestCountdown();
   document.getElementById("testCongratulations")?.remove();
@@ -9008,11 +9033,17 @@ window.addEventListener("load", () => {
 });
 
 function stopSpeechWhenPageIsHidden() {
-  if (document.visibilityState === "hidden") stopSpeechRecognition();
+  if (document.visibilityState === "hidden") {
+    recordCurrentTestResult("hidden");
+    clearTestCountdown();
+    stopSpeechRecognition();
+  }
 }
 
 document.addEventListener("visibilitychange", stopSpeechWhenPageIsHidden);
 function handlePageExit() {
+  recordCurrentTestResult("pagehide");
+  clearTestCountdown();
   stopSpeechRecognition();
   flushQuestionStoreBeforeHide();
 }
