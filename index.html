@@ -5101,7 +5101,9 @@ function startSpeechRecognitionForButton(button) {
   speechRecognition = recognition;
   recognition.lang = "ja-JP";
   recognition.interimResults = true;
-  recognition.continuous = false;
+  // 確定した短い区切りも連結して採点できるよう、正誤が決まるまで認識を続ける。
+  // false だと多くのブラウザーでは言いかけも isFinal になり、末尾判定前に終了する。
+  recognition.continuous = true;
   if (localSpeechAvailable && "processLocally" in recognition) recognition.processLocally = true;
 
   recognition.onstart = () => beginSpeechListening(button, recognition);
@@ -5120,33 +5122,33 @@ function startSpeechRecognitionForButton(button) {
       return;
     }
     if (gradeSpeechAnswer(button, true)) return;
+    let kanjiReadingMap = [];
+    try {
+      kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+    } catch (error) {
+      kanjiReadingMap = [];
+    }
+    const approachesAnswer = doesSpeechTailApproachAnswer(
+      transcript,
+      [button.dataset.answer, button.dataset.answerReading],
+      kanjiReadingMap,
+      button.dataset.conjugation === "true"
+    );
     const latestResult = event.results[event.results.length - 1];
+    if (approachesAnswer) {
+      // isFinal は回答全体の終端とは限らない。末尾が正解にかすっている間は、
+      // 確定結果でも録音と次の認識結果への文字列連結を継続する。
+      if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+      speechGradeTimer = null;
+      return;
+    }
     if (!latestResult.isFinal) {
-      let kanjiReadingMap = [];
-      try {
-        kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
-      } catch (error) {
-        kanjiReadingMap = [];
-      }
-      const approachesAnswer = doesSpeechTailApproachAnswer(
-        transcript,
-        [button.dataset.answer, button.dataset.answerReading],
-        kanjiReadingMap,
-        button.dataset.conjugation === "true"
-      );
-      if (!approachesAnswer) {
-        // 正解の言いかけになっていない末尾は、誤答として一度録音を
-        // 切り上げる。誤答表示後の gradeSpeechAnswer が同じ問題を自動再開する。
-        if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
-        speechGradeTimer = setTimeout(() => {
-          speechGradeTimer = null;
-          if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
-        }, 350);
-      } else if (speechGradeTimer !== null) {
-        // 次の中間結果で正解の先頭に近づいた場合は、早まって誤答にしない。
-        clearTimeout(speechGradeTimer);
+      // 正解の言いかけでない中間結果は、短い猶予後に誤答として録音を切る。
+      if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+      speechGradeTimer = setTimeout(() => {
         speechGradeTimer = null;
-      }
+        if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
+      }, 350);
       return;
     }
     gradeSpeechAnswer(button);
