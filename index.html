@@ -576,9 +576,13 @@
     cursor: pointer;
   }
 
+  .test-answer-button.selected,
   .test-answer-button.listening {
     border-color: #ff6fae;
     color: #ff4f9e;
+  }
+
+  .test-answer-button.listening {
     animation: slowPulse 1.2s ease-in-out infinite;
   }
 
@@ -4941,6 +4945,7 @@ function openSpeechInputFallback(button) {
   closeSpeechInputFallback();
   speechInputFallbackButton = button;
   activeSpeechButton = button;
+  setSpeechButtonClass(button, "selected");
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
@@ -5007,6 +5012,7 @@ function moveSpeechInputFallback(button) {
   speechInputFallbackAcceptAfter = Date.now() + 400;
   speechInputFallbackButton = button;
   activeSpeechButton = button;
+  setSpeechButtonClass(button, "selected");
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentElement("afterend", editor);
   // 同じイベント内で新しいinputへフォーカスを移し、キーボードを表示したままにする。
@@ -5118,7 +5124,7 @@ function handleSpeechInputFallbackInput(input, isComposing = false) {
       || isSpeechInputFallbackPotentialMatch(expectedTranscript, expectedButton)) return;
     if (shouldPromptForJapaneseKeyboard(expectedTranscript)) {
       resetSpeechInputFallbackInput();
-      window.alert("日本語キーボードに変えてください");
+      window.alert("请切换到日语键盘。");
       return;
     }
     submitSpeechInputFallback();
