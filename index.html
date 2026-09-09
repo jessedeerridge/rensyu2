@@ -4791,7 +4791,7 @@ function bindSpeechInputFallbackInput(input) {
     queueMicrotask(() => {
       // Baidu keyboard keeps dictated text in an IME composition. Correct answers
       // may be accepted immediately, but partial text must not be graded as wrong.
-      if (input.isConnected) handleSpeechInputFallbackInput(input);
+      if (input.isConnected) handleSpeechInputFallbackInput(input, true);
     });
   });
   input.addEventListener("compositionend", () => {
@@ -4853,6 +4853,24 @@ function getSpeechInputFallbackAnswers(button) {
     .filter(Boolean);
 }
 
+function getSpeechInputFallbackPotentialAnswers(button) {
+  const answers = getSpeechInputFallbackAnswers(button);
+  const aliases = button?.dataset.conjugation === "true"
+    ? [...SPEECH_EQUIVALENT_ALIASES, ...CONJUGATION_FORM_ALIASES]
+    : SPEECH_EQUIVALENT_ALIASES;
+  const potentialAnswers = new Set(answers);
+
+  // 完成した許容候補は正規化時にcanonicalへ置き換わるが、入力途中の候補は
+  // まだ置き換わらない。「タク」（許容候補「タクシー」の途中）なども
+  // 正答の途中として扱えるよう、正答中のcanonicalを各候補へ戻した形も比較する。
+  answers.forEach(answer => {
+    aliases.forEach(({ alias, canonical }) => {
+      if (answer.includes(canonical)) potentialAnswers.add(answer.replaceAll(canonical, alias));
+    });
+  });
+  return Array.from(potentialAnswers);
+}
+
 function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFallbackButton) {
   if (!button) return false;
   let kanjiReadingMap = [];
@@ -4868,16 +4886,22 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
   );
   if (!normalizedTranscript) return true;
 
-  return getSpeechInputFallbackAnswers(button).some(answer => {
+  const isConjugation = button.dataset.conjugation === "true";
+  return getSpeechInputFallbackPotentialAnswers(button).some(answer => {
     // 入力全体が正解の先頭なら、まだ発話の途中なので録音を続ける。
     if (answer.startsWith(normalizedTranscript)) return true;
 
-    // キーボード音声入力は直前の候補を残して後ろへ認識結果を足すことがある。
-    // 末尾が正解の先頭に2文字以上かすっていれば、候補が確定するまで待つ。
-    const requiredOverlap = Math.min(2, answer.length);
-    const maximumOverlap = Math.min(normalizedTranscript.length, answer.length);
-    for (let length = maximumOverlap; length >= requiredOverlap; length -= 1) {
-      if (normalizedTranscript.slice(-length) === answer.slice(0, length)) return true;
+    // 許容候補の途中にも、別の完成済み許容語が含まれることがあるため、
+    // 候補の各途中形も入力と同じ方法で正規化してから比較する。
+    for (let length = 1; length <= answer.length; length += 1) {
+      const prefix = normalizeSpeechForComparison(answer.slice(0, length), kanjiReadingMap, isConjugation);
+      if (!prefix) continue;
+      if (normalizedTranscript === prefix) return true;
+
+      // キーボード音声入力が直前の候補を残した場合も、末尾が正解候補の
+      // 先頭に2文字以上かすっていれば候補が確定するまで待つ。
+      const requiredOverlap = Math.min(2, answer.length);
+      if (prefix.length >= requiredOverlap && normalizedTranscript.endsWith(prefix)) return true;
     }
     return false;
   });
