@@ -4713,12 +4713,31 @@ function stopSpeechRecognition() {
 }
 
 function getSpeechErrorMessage(error) {
-  if (error === "not-allowed" || error === "service-not-allowed") return "問題をタップしてマイクを許可してください";
-  if (error === "no-speech") return "声が聞こえませんでした。問題をもう一度タップしてください";
-  if (error === "audio-capture") return "マイクを使用できません。問題をもう一度タップしてください";
-  if (error === "network") return "音声認識に接続できません。問題をもう一度タップしてください";
-  if (error === "language-not-supported") return "日本語の音声認識を使用できません";
-  return "聞き取れませんでした。問題をもう一度タップしてください";
+  const messages = {
+    "not-allowed": "マイクの使用が拒否されています。端末とサイトのマイク権限を許可してください",
+    "service-not-allowed": "このブラウザーでは音声認識サービスの使用が許可されていません。別のブラウザーでお試しください",
+    "no-speech": "制限時間内に声を検出できませんでした。マイクに近づいてもう一度お話しください",
+    "audio-capture": "マイクから音声を取得できません。端末のマイク設定や他のアプリで使用中でないか確認してください",
+    "network": "音声認識サービスへ接続できません。インターネット接続や利用地域の通信制限を確認してください",
+    "language-not-supported": "この端末またはブラウザーは日本語（ja-JP）の音声認識に対応していません",
+    "bad-grammar": "音声認識の文法設定を読み込めませんでした。ページを再読み込みしてください",
+    "phrases-not-supported": "このブラウザーは音声認識のフレーズ指定に対応していません",
+    "aborted": "音声認識が中断されました。問題をもう一度タップしてください"
+  };
+  return messages[error] || `音声認識で不明なエラーが発生しました（${error || "詳細なし"}）。別のブラウザーでもお試しください`;
+}
+
+function getSpeechStartErrorMessage(error) {
+  if (error?.name === "NotAllowedError" || error?.name === "SecurityError") {
+    return "ブラウザーがマイクの開始を拒否しました。HTTPSで開き、端末とサイトのマイク権限を許可してください";
+  }
+  if (error?.name === "InvalidStateError") {
+    return "音声認識はすでに開始されています。少し待ってから問題をもう一度タップしてください";
+  }
+  if (error?.name === "AbortError") {
+    return "音声認識の開始が中断されました。問題をもう一度タップしてください";
+  }
+  return `音声認識を開始できませんでした（${error?.name || "原因不明"}）。ページを再読み込みするか、別のブラウザーでお試しください`;
 }
 
 function retrySpeechQuestion(button) {
@@ -4749,9 +4768,11 @@ function armSpeechAnswerTimeout(button, recognition) {
     speechAnswerTimeoutTimer = null;
     if (activeSpeechButton !== button || speechRecognition !== recognition) return;
     setSpeechButtonClass(button);
-    setSpeechButtonMessage(button, "マイクを再準備しています…");
+    setSpeechButtonMessage(button, "4.5秒以内に音声を検出できませんでした。問題をもう一度タップしてお話しください");
     button.querySelector(".test-status").textContent = "";
-    retrySpeechQuestion(button);
+    activeSpeechButton = null;
+    activeSpeechSegments.clear();
+    abortCurrentSpeechRecognition();
   }, 4500);
 }
 
@@ -4836,7 +4857,9 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
 function startSpeechRecognitionForButton(button) {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!Recognition) {
-    speechSessionError = "このブラウザーは音声認識に対応していません";
+    speechSessionError = window.isSecureContext
+      ? "このブラウザーはWeb音声認識に対応していません。対応する別のブラウザーでお試しください"
+      : "安全でない接続（HTTP）のため音声認識を使用できません。HTTPSでページを開いてください";
     setSpeechButtonClass(button);
     setSpeechButtonMessage(button, speechSessionError);
     activeSpeechButton = null;
@@ -4875,10 +4898,6 @@ function startSpeechRecognitionForButton(button) {
     clearSpeechTimers();
     speechRecognition = null;
     activeSpeechSegments.clear();
-    if (event.error === "no-speech" || event.error === "network" || event.error === "aborted") {
-      retrySpeechQuestion(button);
-      return;
-    }
     setSpeechButtonClass(button);
     setSpeechButtonMessage(button, getSpeechErrorMessage(event.error));
     button.querySelector(".test-status").textContent = "";
@@ -4899,7 +4918,7 @@ function startSpeechRecognitionForButton(button) {
     speechRecognition = null;
     activeSpeechButton = null;
     setSpeechButtonClass(button);
-    setSpeechButtonMessage(button, "問題をもう一度タップしてください");
+    setSpeechButtonMessage(button, getSpeechStartErrorMessage(error));
   }
 }
 
@@ -4921,7 +4940,11 @@ function startSpeechTest(button) {
 
 function startSpeechTestSession() {
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  speechSessionError = Recognition ? "" : "このブラウザーは音声認識に対応していません";
+  speechSessionError = Recognition
+    ? ""
+    : window.isSecureContext
+      ? "このブラウザーはWeb音声認識に対応していません。対応する別のブラウザーでお試しください"
+      : "安全でない接続（HTTP）のため音声認識を使用できません。HTTPSでページを開いてください";
 }
 
 function getSavedTestParticipantName() {
