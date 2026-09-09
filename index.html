@@ -4523,7 +4523,6 @@ let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackAcceptAfter = 0;
 let speechInputFallbackMismatchTimer = null;
-let microphoneWarmupPromise = null;
 let testCountdownTimer = null;
 let testCountdownDeadline = 0;
 let testSessionEnded = false;
@@ -4699,21 +4698,6 @@ function checkLocalSpeechAvailability() {
     .catch(() => {
       localSpeechAvailable = false;
     });
-}
-
-function warmUpMicrophoneForFirstAnswer() {
-  if (microphoneWarmupPromise || !navigator.mediaDevices?.getUserMedia) return microphoneWarmupPromise;
-
-  // モバイル端末では最初の音声入力時だけ、マイクの初期化や権限確認に時間がかかり、
-  // キーボードの音声入力が「録音保留」のままになることがある。名前を入力している間に
-  // 音声経路を一度だけ起動し、取得したトラックはすぐ解放して本番の録音と競合させない。
-  microphoneWarmupPromise = navigator.mediaDevices.getUserMedia({ audio: true })
-    .then(stream => {
-      stream.getTracks().forEach(track => track.stop());
-      return true;
-    })
-    .catch(() => false);
-  return microphoneWarmupPromise;
 }
 
 function japaneseNumeralToArabic(token) {
@@ -5773,7 +5757,6 @@ function confirmTestParticipant(event) {
 }
 
 function showTestStartPanel() {
-  warmUpMicrophoneForFirstAnswer();
   const savedName = getSavedTestParticipantName();
   document.body.insertAdjacentHTML("beforeend", `
     <div class="test-start-overlay" id="testStartOverlay">
