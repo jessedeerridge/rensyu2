@@ -4764,6 +4764,15 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["明日は", "あしたは", "明日", "あした"],
   ["名前を", "なまえを", "名前は", "なまえは"],
   ["住んで", "すんで", "済んで"],
+  ["すいた", "空いた"],
+  // 接続助詞の「けど／が」は、格助詞の「が」と混同しないよう述語末ごとに許容する。
+  ["ですけど", "ですが"],
+  ["でしたけど", "でしたが"],
+  ["ますけど", "ますが"],
+  ["ましたけど", "ましたが"],
+  ["ませんけど", "ませんが"],
+  ["ませんでしたけど", "ませんでしたが"],
+  ["はたらき", "働き"],
   ["待てます", "まてます", "待ってます", "まってます"],
   ["行かなくてもいいです", "いかなくてもいいです", "来なくてもいいです", "こなくてもいいです"],
   [
@@ -4882,9 +4891,6 @@ const SPEECH_EQUIVALENT_GROUPS = [
     "トイレに行ってもいいですか", "トイレに行って来てもいいですか", "トイレに行ってきてもいいですか",
     "といれにいってもいいですか", "といれにいってきてもいいですか"
   ],
-  // 「つなぐ」テストで、順序を表す同義表現を許容する。
-  ["食べてから", "食べた後で", "食べたあとで"],
-  ["入って", "入ってから", "入った後で", "入ったあとで"],
   // 「つなぐ」テストで、音声認識の漢字・かな・カタカナ表記の揺れを許容する。
   ["わか", "分か"],
   ["嬉し", "うれし"],
@@ -4901,10 +4907,33 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["賑やか", "にぎやか"]
 ];
 
+// 「つなぐ」だけで許容する言い換え。各グループは全体の表記揺れと組み合わせられる。
+const CONNECT_SPEECH_EQUIVALENT_GROUPS = [
+  ["ので", "から"],
+  ["食べてから", "食べた後で", "食べた後", "たべてから", "たべたあとで", "たべたあと"],
+  ["お風呂に入って", "お風呂に入ってから", "お風呂に入った後で", "お風呂に入った後", "お風呂に入ったら", "おふろにはいって", "おふろにはいってから", "おふろにはいったあとで", "おふろにはいったあと", "おふろにはいったら"],
+  ["買い物をして", "買い物をしてから", "買い物をした後で", "買い物をした後", "かいものをして", "かいものをしてから", "かいものをしたあとで", "かいものをしたあと"],
+  ["家に帰って", "家に帰った後", "家に帰った後で", "家に帰ってから", "いえにかえって", "いえにかえったあと", "いえにかえったあとで", "いえにかえってから"],
+  ["合格できて", "合格できたので", "合格できたから", "ごうかくできて", "ごうかくできたので", "ごうかくできたから"],
+  ["友達に会えて", "友だちに会えて", "友達に会えたから", "友だちに会えたから", "友達に会えたので", "友だちに会えたので", "ともだちにあえて", "ともだちにあえたから", "ともだちにあえたので"],
+  ["食べられて", "食べられたから", "食べられたので", "たべられて", "たべられたから", "たべられたので"],
+  ["間に合って", "間に合ったので", "間に合ったから", "まにあって", "まにあったので", "まにあったから"],
+  ["雨が降って", "雨が降ったから", "雨が降ったので", "あめがふって", "あめがふったから", "あめがふったので"],
+  ["合えなくて", "会えなくて", "合えないので", "会えないので", "合えないから", "会えないから", "あえなくて", "あえないので", "あえないから"],
+  ["仕事が多くて", "仕事が多いので", "仕事が多いから", "しごとがおおくて", "しごとがおおいので", "しごとがおおいから"]
+];
+
 const SPEECH_EQUIVALENT_ALIASES = SPEECH_EQUIVALENT_GROUPS
   .flatMap((group, groupIndex) => group.map(value => ({
     alias: normalizeSpeechText(value),
     canonical: `speechgroup${groupIndex}`
+  })))
+  .sort((a, b) => b.alias.length - a.alias.length);
+
+const CONNECT_SPEECH_EQUIVALENT_ALIASES = CONNECT_SPEECH_EQUIVALENT_GROUPS
+  .flatMap((group, groupIndex) => group.map(value => ({
+    alias: normalizeSpeechText(value),
+    canonical: `connectspeechgroup${groupIndex}`
   })))
   .sort((a, b) => b.alias.length - a.alias.length);
 
@@ -4969,6 +4998,13 @@ function replaceSpeechEquivalentAliases(value) {
   );
 }
 
+function replaceConnectSpeechEquivalentAliases(value) {
+  return CONNECT_SPEECH_EQUIVALENT_ALIASES.reduce(
+    (text, { alias, canonical }) => text.replaceAll(alias, canonical),
+    normalizeSpeechText(value)
+  );
+}
+
 function replaceConjugationVariants(value) {
   const protectedForms = CONJUGATION_FORM_ALIASES.reduce(
     (text, { alias, canonical }) => text.replaceAll(alias, canonical),
@@ -5003,13 +5039,15 @@ function replaceKnownKanjiWithReadings(value, kanjiReadingMap = []) {
   );
 }
 
-function normalizeSpeechForComparison(value, kanjiReadingMap = [], isConjugation = false) {
+function normalizeSpeechForComparison(value, kanjiReadingMap = [], isConjugation = false, isConnect = false) {
   // 完全な言い換え候補を先に保護してから、この問題固有のルビを適用する。
   // 例：「友達」の「友」だけが先に「とも」になると「とも達」になり、候補と一致しなくなる。
   const modeNormalized = isConjugation ? replaceConjugationVariants(value) : value;
-  const protectedAliases = replaceSpeechEquivalentAliases(modeNormalized);
+  const connectNormalized = isConnect ? replaceConnectSpeechEquivalentAliases(modeNormalized) : modeNormalized;
+  const protectedAliases = replaceSpeechEquivalentAliases(connectNormalized);
   const withReadings = replaceKnownKanjiWithReadings(protectedAliases, kanjiReadingMap);
-  const normalized = replaceSpeechEquivalentAliases(withReadings);
+  const globalNormalized = replaceSpeechEquivalentAliases(withReadings);
+  const normalized = isConnect ? replaceConnectSpeechEquivalentAliases(globalNormalized) : globalNormalized;
   return isConjugation ? replaceConjugationVariants(normalized) : normalized;
 }
 
@@ -5040,6 +5078,10 @@ function getSpeechAnswerVariants(answer, isConjugation = false) {
   const source = String(answer || "");
   const variants = [source, source.replace(/^\s*あ[!！]\s*/, "")];
   const normalized = normalizeSpeechText(source);
+  // 「陳さん」の体調を伝える問題は、主語を省略した回答も正解にする。
+  if (["陳さんは風邪をひいたそうです", "ちんさんはかぜをひいたそうです"].includes(normalized)) {
+    variants.push(normalized.replace(/^(?:陳|ちん)さんは/, ""));
+  }
   if (isConjugation) variants.push(...(CONJUGATION_ANSWER_VARIANTS.get(normalized) || []));
   if (["まだジュースがありますか", "まだカレーがありますか"].includes(normalized)) {
     variants.push("まだありますか");
@@ -5047,13 +5089,13 @@ function getSpeechAnswerVariants(answer, isConjugation = false) {
   return variants;
 }
 
-function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConjugation = false) {
-  const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
+function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConjugation = false, isConnect = false) {
+  const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation, isConnect);
   return answers.some(answer => {
     // 問題文の注意喚起として付けた冒頭の「あ！」は、発話しなくても採点に影響させない。
     const answerVariants = getSpeechAnswerVariants(answer, isConjugation);
     return answerVariants.some(answerVariant => {
-      const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation);
+      const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation, isConnect);
       if (!normalizedAnswer) return false;
       return isConjugation
         ? normalizedTranscript.includes(normalizedAnswer)
@@ -5299,10 +5341,11 @@ function getSpeechInputFallbackAnswers(button) {
     kanjiReadingMap = [];
   }
   const isConjugation = button?.dataset.conjugation === "true";
+  const isConnect = button?.dataset.connect === "true";
   return [button?.dataset.answer, button?.dataset.answerReading]
     .filter(Boolean)
     .flatMap(answer => getSpeechAnswerVariants(answer, isConjugation))
-    .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation))
+    .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation, isConnect))
     .filter(Boolean);
 }
 
@@ -5310,7 +5353,9 @@ function getSpeechInputFallbackPotentialAnswers(button) {
   const answers = getSpeechInputFallbackAnswers(button);
   const aliases = button?.dataset.conjugation === "true"
     ? [...SPEECH_EQUIVALENT_ALIASES, ...CONJUGATION_FORM_ALIASES]
-    : SPEECH_EQUIVALENT_ALIASES;
+    : button?.dataset.connect === "true"
+      ? [...SPEECH_EQUIVALENT_ALIASES, ...CONNECT_SPEECH_EQUIVALENT_ALIASES]
+      : SPEECH_EQUIVALENT_ALIASES;
   const potentialAnswers = new Set(answers);
 
   // 完成した許容候補は正規化時にcanonicalへ置き換わるが、入力途中の候補は
@@ -5335,7 +5380,8 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
   const normalizedTranscript = normalizeSpeechForComparison(
     transcript,
     kanjiReadingMap,
-    button.dataset.conjugation === "true"
+    button.dataset.conjugation === "true",
+    button.dataset.connect === "true"
   );
   if (!normalizedTranscript) return true;
 
@@ -5347,7 +5393,7 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
     // 許容候補の途中にも、別の完成済み許容語が含まれることがあるため、
     // 候補の各途中形も入力と同じ方法で正規化してから比較する。
     for (let length = 1; length <= answer.length; length += 1) {
-      const prefix = normalizeSpeechForComparison(answer.slice(0, length), kanjiReadingMap, isConjugation);
+      const prefix = normalizeSpeechForComparison(answer.slice(0, length), kanjiReadingMap, isConjugation, button.dataset.connect === "true");
       if (!prefix) continue;
       if (normalizedTranscript === prefix) return true;
 
@@ -5425,7 +5471,8 @@ function isSpeechInputFallbackAnswerCorrect(transcript) {
     transcript,
     [button.dataset.answer, button.dataset.answerReading],
     kanjiReadingMap,
-    button.dataset.conjugation === "true"
+    button.dataset.conjugation === "true",
+    button.dataset.connect === "true"
   );
 }
 
@@ -5590,7 +5637,8 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
     transcript,
     [target.dataset.answer, target.dataset.answerReading],
     kanjiReadingMap,
-    target.dataset.conjugation === "true"
+    target.dataset.conjugation === "true",
+    target.dataset.connect === "true"
   );
   if (onlyIfCorrect && !correct) return false;
 
@@ -5828,6 +5876,7 @@ function makeTestTable() {
     .filter(row => currentTableType !== "聞く" || !getCellAnswerText(row.cells[row.cells.length - 1]).includes("歌手を知っていますか"));
   if (!rows.length) return false;
   const isConjugation = currentSection === "conjugation";
+  const isConnect = currentTableType === "つなぐ";
 
   const selected = shuffleArray(rows).slice(0, Math.min(15, rows.length)).map(row => {
     const answerCell = row.cells[row.cells.length - 1];
@@ -5850,7 +5899,7 @@ function makeTestTable() {
     const prompt = row.cells[0].cloneNode(true);
     prompt.querySelectorAll(".question-box").forEach(node => node.remove());
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
-    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" data-selected="false" aria-pressed="false" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
+    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" data-connect="${isConnect}" data-selected="false" aria-pressed="false" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
   }).join("");
   document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:20" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
