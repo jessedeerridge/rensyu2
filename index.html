@@ -4377,12 +4377,15 @@ let activeSpeechButton = null;
 let speechSessionError = "";
 let speechGradeTimer = null;
 let speechAnswerTimeoutTimer = null;
+let speechNextQuestionTimer = null;
 let speechRetryCount = 0;
 let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
 let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackGradeTimer = null;
+let speechInputFallbackAcceptAfter = 0;
+let speechInputFallbackComposing = false;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4401,8 +4404,10 @@ function setSpeechButtonMessage(button, message) {
 function clearSpeechTimers() {
   if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
   if (speechAnswerTimeoutTimer !== null) clearTimeout(speechAnswerTimeoutTimer);
+  if (speechNextQuestionTimer !== null) clearTimeout(speechNextQuestionTimer);
   speechGradeTimer = null;
   speechAnswerTimeoutTimer = null;
+  speechNextQuestionTimer = null;
 }
 
 function abortCurrentSpeechRecognition() {
@@ -4748,6 +4753,13 @@ function stopSpeechRecognition() {
 function closeSpeechInputFallback(clearTarget = true) {
   if (speechInputFallbackGradeTimer !== null) clearTimeout(speechInputFallbackGradeTimer);
   speechInputFallbackGradeTimer = null;
+  speechInputFallbackAcceptAfter = 0;
+  speechInputFallbackComposing = false;
+  const input = document.getElementById("speechInputFallbackText");
+  if (input) {
+    input.value = "";
+    input.blur();
+  }
   document.getElementById("speechInputFallbackEditor")?.remove();
   speechInputFallbackButton?.setAttribute("aria-expanded", "false");
   if (clearTarget) {
@@ -4763,14 +4775,106 @@ function openSpeechInputFallback(button) {
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
-      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え" placeholder="キーボードの🎤で話す">
+      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードのマイクボタンを押して開始" placeholder="🎤を押して開始">
     </form>
   `);
   const input = document.getElementById("speechInputFallbackText");
-  input?.addEventListener("input", () => scheduleSpeechInputFallbackGrade(input));
-  input?.addEventListener("compositionstart", cancelSpeechInputFallbackGrade);
-  input?.addEventListener("compositionend", () => scheduleSpeechInputFallbackGrade(input));
+  speechInputFallbackAcceptAfter = 0;
+  bindSpeechInputFallbackInput(input);
   input?.focus();
+}
+
+function bindSpeechInputFallbackInput(input) {
+  if (!input) return;
+  input.addEventListener("input", event => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    handleSpeechInputFallbackInput(input, !event.isComposing && !speechInputFallbackComposing);
+  });
+  input.addEventListener("compositionstart", () => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    speechInputFallbackComposing = true;
+    cancelSpeechInputFallbackGrade();
+  });
+  input.addEventListener("compositionupdate", () => {
+    queueMicrotask(() => {
+      // Baidu keyboard keeps dictated text in an IME composition. Correct answers
+      // may be accepted immediately, but partial text must not be graded as wrong.
+      if (input.isConnected) handleSpeechInputFallbackInput(input, false);
+    });
+  });
+  input.addEventListener("compositionend", () => {
+    if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
+    speechInputFallbackComposing = false;
+    handleSpeechInputFallbackInput(input, true);
+  });
+}
+
+function resetSpeechInputFallbackInput() {
+  cancelSpeechInputFallbackGrade();
+  const input = document.getElementById("speechInputFallbackText");
+  if (!input) return null;
+  // Replacing the focused element terminates the old IME composition. Clearing
+  // input.value alone lets Baidu keyboard restore its pending transcription.
+  const replacement = input.cloneNode();
+  replacement.value = "";
+  input.replaceWith(replacement);
+  speechInputFallbackComposing = false;
+  bindSpeechInputFallbackInput(replacement);
+  replacement.focus();
+  return replacement;
+}
+
+function moveSpeechInputFallback(button) {
+  cancelSpeechInputFallbackGrade();
+  const editor = document.getElementById("speechInputFallbackEditor");
+  const input = document.getElementById("speechInputFallbackText");
+  if (!editor || !input) {
+    openSpeechInputFallback(button);
+    return;
+  }
+  speechInputFallbackButton?.setAttribute("aria-expanded", "false");
+  const resetInput = resetSpeechInputFallbackInput();
+  // キーボード音声入力の終了直後に届く前問の末尾は、次問の回答として受け付けない。
+  speechInputFallbackAcceptAfter = Date.now() + 400;
+  speechInputFallbackButton = button;
+  activeSpeechButton = button;
+  button.setAttribute("aria-expanded", "true");
+  button.insertAdjacentElement("afterend", editor);
+  // 同じイベント内で新しいinputへフォーカスを移し、キーボードを表示したままにする。
+  resetInput?.focus();
+}
+
+function handleSpeechInputFallbackInput(input, allowDelayedGrade = true) {
+  if (Date.now() < speechInputFallbackAcceptAfter) {
+    input.value = "";
+    cancelSpeechInputFallbackGrade();
+    return;
+  }
+  const transcript = input?.value.trim() || "";
+  if (transcript && (isSpeechSkipRequest(transcript) || isSpeechInputFallbackAnswerCorrect(transcript))) {
+    cancelSpeechInputFallbackGrade();
+    submitSpeechInputFallback();
+    return;
+  }
+  if (allowDelayedGrade) scheduleSpeechInputFallbackGrade(input);
+  else cancelSpeechInputFallbackGrade();
+}
+
+function isSpeechInputFallbackAnswerCorrect(transcript) {
+  const button = speechInputFallbackButton;
+  if (!button) return false;
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  return isSpeechAnswerCorrect(
+    transcript,
+    [button.dataset.answer, button.dataset.answerReading],
+    kanjiReadingMap,
+    button.dataset.conjugation === "true"
+  );
 }
 
 function cancelSpeechInputFallbackGrade() {
@@ -4781,10 +4885,14 @@ function cancelSpeechInputFallbackGrade() {
 function scheduleSpeechInputFallbackGrade(input) {
   cancelSpeechInputFallbackGrade();
   if (!input?.value.trim()) return;
+  const answers = [speechInputFallbackButton?.dataset.answer, speechInputFallbackButton?.dataset.answerReading]
+    .filter(Boolean);
+  const shortestAnswerLength = Math.min(...answers.map(answer => normalizeSpeechText(answer).length));
+  const gradeDelay = shortestAnswerLength <= 4 ? 250 : 500;
   speechInputFallbackGradeTimer = setTimeout(() => {
     speechInputFallbackGradeTimer = null;
     submitSpeechInputFallback();
-  }, 2000);
+  }, gradeDelay);
 }
 
 function submitSpeechInputFallback(event) {
@@ -4797,12 +4905,14 @@ function submitSpeechInputFallback(event) {
     input?.reportValidity();
     return;
   }
-  closeSpeechInputFallback(false);
-  speechInputFallbackButton = null;
   activeSpeechButton = button;
   activeSpeechSegments.clear();
   activeSpeechSegments.set(0, transcript);
   setSpeechButtonMessage(button, transcript);
+  if (isSpeechSkipRequest(transcript)) {
+    skipSpeechQuestion(button, transcript);
+    return;
+  }
   gradeSpeechAnswer(button);
 }
 
@@ -4895,13 +5005,21 @@ function startNextSpeechQuestion(currentButton) {
   const nextButton = buttons
     .slice(buttons.indexOf(currentButton) + 1)
     .find(button => button.dataset.correct !== "true");
-  if (!nextButton) return;
-  if (speechInputFallbackMode) {
-    nextButton.dataset.speechFallback = "true";
-    openSpeechInputFallback(nextButton);
+  if (!nextButton) {
+    if (speechInputFallbackMode) closeSpeechInputFallback();
     return;
   }
-  startSpeechTest(nextButton);
+  if (speechInputFallbackMode) {
+    nextButton.dataset.speechFallback = "true";
+    moveSpeechInputFallback(nextButton);
+    return;
+  }
+  setSpeechButtonMessage(nextButton, "マイクを準備しています…");
+  // 前問の音声の末尾を新しい認識器が拾わないよう、マイクを切ってから少し待って開始する。
+  speechNextQuestionTimer = setTimeout(() => {
+    speechNextQuestionTimer = null;
+    if (testModeActive && nextButton.dataset.correct !== "true") startSpeechTest(nextButton);
+  }, 400);
 }
 
 function isSpeechSkipRequest(transcript) {
@@ -4956,7 +5074,10 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
     startNextSpeechQuestion(target);
   } else {
     if (target.dataset.speechFallback === "true") {
-      target.querySelector(".test-status").textContent = "× もう一度タップして音声入力";
+      // 誤答を消した空欄で同じ問題を再開する。
+      setSpeechButtonMessage(target, "タップして話す 🎤");
+      target.querySelector(".test-status").textContent = "× もう一度音声入力";
+      moveSpeechInputFallback(target);
       return correct;
     }
     // 誤答表示で一度閉じた後、次のイベントループですぐ同じ問題を再開する。
@@ -5004,7 +5125,20 @@ function startSpeechRecognitionForButton(button) {
     }
     if (gradeSpeechAnswer(button, true)) return;
     const latestResult = event.results[event.results.length - 1];
-    if (!latestResult.isFinal) return;
+    if (!latestResult.isFinal) {
+      const answerLength = Math.min(
+        normalizeSpeechText(button.dataset.answer || "").length || Infinity,
+        normalizeSpeechText(button.dataset.answerReading || "").length || Infinity
+      );
+      if (answerLength <= 4) {
+        if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+        speechGradeTimer = setTimeout(() => {
+          speechGradeTimer = null;
+          if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
+        }, 250);
+      }
+      return;
+    }
     gradeSpeechAnswer(button);
   };
   recognition.onerror = event => {
