@@ -50,19 +50,6 @@
     gap: 3px;
   }
 
-  .firebase-control button {
-    border: 0;
-    border-radius: 999px;
-    padding: 7px 10px;
-    background: #fff;
-    color: #555;
-    font: inherit;
-    font-size: 11px;
-    font-weight: 900;
-    box-shadow: 0 2px 8px rgba(0,0,0,.18);
-  }
-
-  .firebase-control button.connected { background:#dcfce7; color:#16803a; }
   .firebase-state { padding:2px 5px; border-radius:5px; background:rgba(255,255,255,.9); color:#b42318; font-size:9px; font-weight:900; }
   .firebase-state.connected { color:#16803a; }
 
@@ -2482,7 +2469,6 @@
 <body class="home-mode">
 
 <div class="firebase-control">
-  <button id="firebaseToggle" type="button" onclick="toggleFirebaseConnection()">Firebase ON</button>
   <span id="firebaseState" class="firebase-state">not connected</span>
 </div>
 
@@ -3447,6 +3433,7 @@ const teFormData = [
   ["<ruby>教<rt>おし</rt></ruby>える", "<ruby>教<rt>おし</rt></ruby>えて", "te-ichidan"],
 
   ["<ruby>来<rt>く</rt></ruby>る", "<ruby>来<rt>き</rt></ruby>て", ""],
+  ["<ruby>持<rt>も</rt></ruby>ってくる", "<ruby>持<rt>も</rt></ruby>ってきて", ""],
   ["する", "して", ""],
   ["<ruby>勉強<rt>べんきょう</rt></ruby>する", "<ruby>勉強<rt>べんきょう</rt></ruby>して", ""]
 ];
@@ -3497,6 +3484,7 @@ const taFormData = [
   ["<ruby>教<rt>おし</rt></ruby>える", "<ruby>教<rt>おし</rt></ruby>えた", "te-ichidan"],
 
   ["<ruby>来<rt>く</rt></ruby>る", "<ruby>来<rt>き</rt></ruby>た", ""],
+  ["<ruby>持<rt>も</rt></ruby>ってくる", "<ruby>持<rt>も</rt></ruby>ってきた", ""],
   ["する", "した", ""],
   ["<ruby>勉強<rt>べんきょう</rt></ruby>する", "<ruby>勉強<rt>べんきょう</rt></ruby>した", ""]
 ];
@@ -4606,26 +4594,14 @@ async function flushPendingTestResults() {
 
 function setFirebaseConnectionUi(connected) {
   firebaseConnected = connected;
-  const button = document.getElementById("firebaseToggle");
   const state = document.getElementById("firebaseState");
-  button?.classList.toggle("connected", connected);
   state?.classList.toggle("connected", connected);
-  if (button) button.textContent = firebaseEnabled ? "Firebase OFF" : "Firebase ON";
   if (state) state.textContent = connected ? "connected" : "not connected";
 }
 
-async function toggleFirebaseConnection() {
-  if (firebaseEnabled) {
-    firebaseEnabled = false;
-    firebaseConnectionUnsubscribe?.();
-    firebaseConnectionUnsubscribe = null;
-    if (firebaseApi && firebaseDatabase) firebaseApi.goOffline(firebaseDatabase);
-    setFirebaseConnectionUi(false);
-    return;
-  }
+async function connectFirebase() {
+  if (firebaseEnabled) return;
   firebaseEnabled = true;
-  const button = document.getElementById("firebaseToggle");
-  if (button) { button.disabled = true; button.textContent = "connecting..."; }
   try {
     const [appModule, databaseModule] = await Promise.all([
       import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
@@ -4643,7 +4619,7 @@ async function toggleFirebaseConnection() {
   } catch (error) {
     firebaseEnabled = false;
     setFirebaseConnectionUi(false);
-  } finally { if (button) button.disabled = false; }
+  }
 }
 
 function setSpeechButtonClass(button, state = "") {
@@ -5046,7 +5022,9 @@ const CONJUGATION_ANSWER_VARIANTS = new Map([
   ["会って", ["って"]],
   ["立って", ["って"]],
   ["会った", ["った"]],
-  ["立った", ["った"]]
+  ["立った", ["った"]],
+  ["来て", ["来", "き"]],
+  ["来た", ["来", "き"]]
 ]);
 
 function getSpeechAnswerVariants(answer, isConjugation = false) {
@@ -5834,6 +5812,10 @@ function makeTestTable() {
   const rows = Array.from(sourceTable.querySelectorAll("tr"))
     .filter(row => !row.querySelector("th") && !row.classList.contains("group-row"))
     .filter(row => row.cells.length >= 2)
+    // Vて・Vたでは単独の「する」「来る」だけを除外する。
+    // 「勉強する」「持ってくる」などの複合動詞は通常どおり出題候補に残す。
+    .filter(row => !(["Vて", "Vた"].includes(currentTableType)
+      && ["する", "来る", "くる"].includes(getCellAnswerText(row.cells[0]))))
     // Vますのテストでは、ませんか・ましょうか・ましょうの練習行を出題しない。
     .filter(row => currentTableType !== "Vます" || getCellAnswerText(row.cells[row.cells.length - 1]).endsWith("ます"))
     // 中国語の固有名詞を含む歌手の問題は、聞くモードの音声テストには出題しない。
@@ -9078,6 +9060,9 @@ window.addEventListener("orientationchange", () => {
 });
 
 window.addEventListener("load", () => {
+  // Firebaseの成否を待たずに画面を初期化する。接続できない環境でも、
+  // 結果はローカルへ保存され、次に接続できたとき同期される。
+  connectFirebase();
   checkLocalSpeechAvailability();
   bootstrapQuestionStorePersistence();
   setHomeMenu("main");
