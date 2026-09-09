@@ -4504,6 +4504,7 @@ let speechInputFallbackMismatchTimer = null;
 let testCountdownTimer = null;
 let testCountdownDeadline = 0;
 let testSessionEnded = false;
+let testResultRecorded = false;
 const TEST_RESULTS_STORAGE_KEY = "rensyuuQuickTestResults_v1";
 const firebaseConfig = {
   apiKey: "AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",
@@ -5085,18 +5086,10 @@ function getTestAchievementPercent() {
 }
 
 function finishTestAtTimeLimit() {
-  if (testSessionEnded) return;
-  testSessionEnded = true;
-  stopSpeechRecognition();
+  if (testSessionEnded || testResultRecorded) return;
   clearTestCountdown();
-  const percent = getTestAchievementPercent();
-  saveTestResult(percent);
-  const name = getSavedTestParticipantName();
-  document.body.insertAdjacentHTML("beforeend", `
-    <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
-      <div class="test-start-panel test-congratulations">${escapeHtml(name)}さん、<br>達成度 ${percent}%</div>
-    </div>
-  `);
+  saveTestResult(getTestAchievementPercent());
+  testResultRecorded = true;
 }
 
 function startTestCountdown() {
@@ -5114,7 +5107,10 @@ function finishTestSuccessfullyIfComplete() {
   testSessionEnded = true;
   stopSpeechRecognition();
   clearTestCountdown();
-  saveTestResult(100);
+  if (!testResultRecorded) {
+    saveTestResult(100);
+    testResultRecorded = true;
+  }
   const name = getSavedTestParticipantName();
   document.body.insertAdjacentHTML("beforeend", `
     <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
@@ -5685,6 +5681,7 @@ function getSavedTestParticipantName() {
 
 function beginTestQuestions() {
   testSessionEnded = false;
+  testResultRecorded = false;
   startSpeechTestSession();
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
