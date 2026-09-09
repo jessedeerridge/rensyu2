@@ -2436,9 +2436,13 @@
 <div id="startNotice" class="start-notice-overlay" onclick="closeStartNotice()" role="button" aria-label="説明を閉じる">
   <table class="start-notice-table">
     <tr>
-      <td>请务必不要只在脑中练习，而是一定要大声说出来进行练习。通过按照规则连续口头表达，让头脑和嘴巴都逐渐适应。
-“？”仅保存在同一浏览器内。
-      到初级页面后，会用<strong>句子</strong>进行口语热身，并以会话为目标。</td>
+      <td>不要只在脑中练习，一定要大声说出来练习！
+
+按照规则连续说出来，让自己的大脑和嘴巴都逐渐适应吧。
+
+标有“？”的表达只会保存在同一个浏览器中。
+
+从「活用・初级1」开始，请练习把内容组成句子并大声说出来。</td>
     </tr>
   </table>
 </div>
@@ -4534,6 +4538,8 @@ function normalizeSpeechText(value) {
 
 const SPEECH_EQUIVALENT_GROUPS = [
   ["陳", "珍"],
+  // 「会います」がカタカナや漢字・かな混じりで認識された場合も許容する。
+  ["会います", "あいます", "アイマス", "アイます"],
   ["日本", "旅行"],
   ["このケーキ屋", "ケーキ屋", "このけーきや", "けーきや"],
   ["とき", "時"],
@@ -4902,7 +4908,6 @@ function startTestCountdown() {
 function finishTestSuccessfullyIfComplete() {
   const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
   if (!buttons.length || buttons.some(button => button.dataset.correct !== "true")) return false;
-  if (!testCountdownDeadline || Date.now() > testCountdownDeadline + 10000) return false;
 
   testSessionEnded = true;
   stopSpeechRecognition();
@@ -5082,6 +5087,12 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
   });
 }
 
+function shouldPromptForJapaneseKeyboard(transcript) {
+  const text = String(transcript || "").trim();
+  if (!text || /[\u3040-\u30ff]/.test(text)) return false;
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 function handleSpeechInputFallbackInput(input, isComposing = false) {
   clearSpeechInputFallbackMismatchTimer();
   if (Date.now() < speechInputFallbackAcceptAfter) {
@@ -5105,6 +5116,11 @@ function handleSpeechInputFallbackInput(input, isComposing = false) {
       || speechInputFallbackButton !== expectedButton
       || input.value.trim() !== expectedTranscript
       || isSpeechInputFallbackPotentialMatch(expectedTranscript, expectedButton)) return;
+    if (shouldPromptForJapaneseKeyboard(expectedTranscript)) {
+      resetSpeechInputFallbackInput();
+      window.alert("日本語キーボードに変えてください");
+      return;
+    }
     submitSpeechInputFallback();
   }, 700);
 }
@@ -5305,9 +5321,10 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
     if (!finishTestSuccessfullyIfComplete()) startNextSpeechQuestion(target);
   } else {
     if (target.dataset.speechFallback === "true") {
-      // 誤答を消した空欄で同じ問題を再開する。
+      // 誤答表示を残さず、空欄で同じ問題を再開する。
+      setSpeechButtonClass(target);
       setSpeechButtonMessage(target, "");
-      target.querySelector(".test-status").textContent = "× もう一度音声入力";
+      target.querySelector(".test-status").textContent = "";
       moveSpeechInputFallback(target);
       return correct;
     }
@@ -5454,7 +5471,8 @@ function beginTestQuestions() {
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
   if (firstQuestion) {
     firstQuestion.focus({ preventScroll: true });
-    startSpeechTest(firstQuestion);
+    // 手動で問題を選んだときと同じ経路を通し、開始直後から1問目を選択状態にする。
+    firstQuestion.click();
   }
 }
 
