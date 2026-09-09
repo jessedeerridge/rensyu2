@@ -579,7 +579,13 @@
   .test-answer-button.selected,
   .test-answer-button.listening {
     border-color: #ff6fae;
+    background: #fff0f6;
     color: #ff4f9e;
+  }
+
+  .test-table tr.selected-question td:first-child {
+    background: #fff7fb;
+    box-shadow: inset 4px 0 0 #ff6fae;
   }
 
   .test-answer-button.listening {
@@ -4462,8 +4468,18 @@ function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
   if (button.dataset.correct === "true") classes.push("correct");
   else if (button.dataset.revealed === "true") classes.push("revealed");
+  if (button.dataset.selected === "true") classes.push("selected");
   if (state) classes.push(state);
   button.className = classes.join(" ");
+}
+
+function selectSpeechTestQuestion(button) {
+  document.querySelectorAll("#tableArea .test-answer-button").forEach(answerButton => {
+    answerButton.dataset.selected = answerButton === button ? "true" : "false";
+    answerButton.setAttribute("aria-pressed", answerButton === button ? "true" : "false");
+    answerButton.classList.toggle("selected", answerButton === button);
+    answerButton.closest("tr")?.classList.toggle("selected-question", answerButton === button);
+  });
 }
 
 function setSpeechButtonMessage(button, message) {
@@ -4945,7 +4961,7 @@ function openSpeechInputFallback(button) {
   closeSpeechInputFallback();
   speechInputFallbackButton = button;
   activeSpeechButton = button;
-  setSpeechButtonClass(button, "selected");
+  selectSpeechTestQuestion(button);
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
@@ -5012,7 +5028,7 @@ function moveSpeechInputFallback(button) {
   speechInputFallbackAcceptAfter = Date.now() + 400;
   speechInputFallbackButton = button;
   activeSpeechButton = button;
-  setSpeechButtonClass(button, "selected");
+  selectSpeechTestQuestion(button);
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentElement("afterend", editor);
   // 同じイベント内で新しいinputへフォーカスを移し、キーボードを表示したままにする。
@@ -5431,6 +5447,7 @@ function startSpeechRecognitionForButton(button) {
 
 function startSpeechTest(button) {
   if (testSessionEnded) return;
+  selectSpeechTestQuestion(button);
   if (speechInputFallbackMode || button.dataset.speechFallback === "true") {
     openSpeechInputFallback(button);
     return;
@@ -5476,6 +5493,8 @@ function beginTestQuestions() {
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
   if (firstQuestion) {
+    // 音声入力を開始できない環境でも、先に1問目の選択表示を確定する。
+    selectSpeechTestQuestion(firstQuestion);
     firstQuestion.focus({ preventScroll: true });
     // 手動で問題を選んだときと同じ経路を通し、開始直後から1問目を選択状態にする。
     firstQuestion.click();
@@ -5551,7 +5570,7 @@ function makeTestTable() {
     const answer = getCellAnswerText(row.cells[row.cells.length - 1]);
     const answerReading = getCellAnswerReading(row.cells[row.cells.length - 1]);
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
-    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
+    return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" data-selected="false" aria-pressed="false" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript"></span><span class="test-status"></span></button></td></tr>`;
   }).join("");
   document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:30" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
