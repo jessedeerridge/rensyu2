@@ -4780,6 +4780,11 @@ function openSpeechInputFallback(button) {
   speechInputFallbackAcceptAfter = 0;
   input?.addEventListener("input", () => handleSpeechInputFallbackInput(input));
   input?.addEventListener("compositionstart", cancelSpeechInputFallbackGrade);
+  input?.addEventListener("compositionupdate", () => {
+    queueMicrotask(() => {
+      if (input.isConnected) handleSpeechInputFallbackInput(input);
+    });
+  });
   input?.addEventListener("compositionend", () => handleSpeechInputFallbackInput(input));
   input?.focus();
 }
@@ -4810,7 +4815,30 @@ function handleSpeechInputFallbackInput(input) {
     cancelSpeechInputFallbackGrade();
     return;
   }
+  const transcript = input?.value.trim() || "";
+  if (transcript && (isSpeechSkipRequest(transcript) || isSpeechInputFallbackAnswerCorrect(transcript))) {
+    cancelSpeechInputFallbackGrade();
+    submitSpeechInputFallback();
+    return;
+  }
   scheduleSpeechInputFallbackGrade(input);
+}
+
+function isSpeechInputFallbackAnswerCorrect(transcript) {
+  const button = speechInputFallbackButton;
+  if (!button) return false;
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  return isSpeechAnswerCorrect(
+    transcript,
+    [button.dataset.answer, button.dataset.answerReading],
+    kanjiReadingMap,
+    button.dataset.conjugation === "true"
+  );
 }
 
 function cancelSpeechInputFallbackGrade() {
