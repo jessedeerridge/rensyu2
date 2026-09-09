@@ -5148,9 +5148,8 @@ function shouldPromptForJapaneseKeyboard(transcript, input = null) {
   const inputLocale = String(input?.dataset.inputLocale || "").toLowerCase();
   if (/^zh(?:-|$)/.test(inputLocale)) return true;
   if (!text || /[\u3040-\u30ff]/.test(text)) return false;
-  // 漢字は日本語と中国語で同じUnicodeを使うため一律判定せず、簡体字に
-  // 特有の文字が含まれる場合だけ中国語入力の可能性が高いと判断する。
-  if (/[这们为说还没请吗时后里习练声浏览键盘换谁语听见买卖车门间]/.test(text)) return true;
+  // 指定された中国語判定文字が一つでも含まれていれば、中国語入力として扱う。
+  if (/[这很也没呢吧吗您哪谁怎啥挺跟把说话们还过进车门问间听见现觉让给对从为书买卖东乐习语汉认识请谢欢边远运动饭饿饱钱贵药爱亲长师时后开关电脑网飞头发厅楼层厕厨历纸笔读课练题错难简单记讲帮找该总]/.test(text)) return true;
   if (/[\u3400-\u9fff]/.test(text)) return false;
   return /[a-z0-9]/i.test(text);
 }
