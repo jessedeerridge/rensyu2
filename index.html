@@ -5470,6 +5470,8 @@ function makeTestTable() {
   const rows = Array.from(sourceTable.querySelectorAll("tr"))
     .filter(row => !row.querySelector("th") && !row.classList.contains("group-row"))
     .filter(row => row.cells.length >= 2)
+    // Vますのテストでは、ませんか・ましょうか・ましょうの練習行を出題しない。
+    .filter(row => currentTableType !== "Vます" || getCellAnswerText(row.cells[row.cells.length - 1]).endsWith("ます"))
     // 中国語の固有名詞を含む歌手の問題は、聞くモードの音声テストには出題しない。
     .filter(row => currentTableType !== "聞く" || !getCellAnswerText(row.cells[row.cells.length - 1]).includes("歌手を知っていますか"));
   if (!rows.length) return false;
@@ -5501,6 +5503,11 @@ function toggleTestMode() {
     document.getElementById("testModeBtn").classList.remove("is-active");
     afterTableOrderChanged();
     return;
+  }
+  // Vますは入れ替え表示中でも、辞書形を問題、～ますを答えにしてテストを作る。
+  if (currentTableType === "Vます" && masuSwapped) {
+    masuSwapped = false;
+    makeMasuTable();
   }
   rememberSequentialTable();
   if (!makeTestTable()) return;
