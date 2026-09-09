@@ -662,15 +662,51 @@
     font-weight: 800;
   }
 
-  .speech-input-help {
-    margin: 0 0 14px;
-    color: #666;
-    font-size: 14px;
-    line-height: 1.6;
+  .speech-input-inline {
+    margin-top: 7px;
+    padding: 9px;
+    border: 1px solid #ffd1e6;
+    border-radius: 10px;
+    background: #fff;
   }
 
-  .test-start-panel .speech-input-cancel {
-    margin-top: 10px;
+  .speech-input-inline input {
+    display: block;
+    width: 100%;
+    margin: 0 0 7px;
+    padding: 9px 10px;
+    border: 2px solid #ddd;
+    border-radius: 8px;
+    font: inherit;
+    font-size: 16px;
+  }
+
+  .speech-input-help {
+    display: block;
+    margin: 0 0 8px;
+    color: #666;
+    font-size: 11px;
+    line-height: 1.45;
+  }
+
+  .speech-input-actions {
+    display: flex;
+    gap: 6px;
+  }
+
+  .speech-input-actions button {
+    flex: 1;
+    border: 0;
+    border-radius: 999px;
+    padding: 8px 6px;
+    background: #ff6fae;
+    color: #fff;
+    font: inherit;
+    font-size: 12px;
+    font-weight: 800;
+  }
+
+  .speech-input-actions .speech-input-cancel {
     background: #999;
   }
 
@@ -4728,7 +4764,8 @@ function stopSpeechRecognition() {
 }
 
 function closeSpeechInputFallback(clearTarget = true) {
-  document.getElementById("speechInputFallbackOverlay")?.remove();
+  document.getElementById("speechInputFallbackEditor")?.remove();
+  speechInputFallbackButton?.setAttribute("aria-expanded", "false");
   if (clearTarget) {
     if (activeSpeechButton === speechInputFallbackButton) activeSpeechButton = null;
     speechInputFallbackButton = null;
@@ -4739,17 +4776,16 @@ function openSpeechInputFallback(button) {
   closeSpeechInputFallback();
   speechInputFallbackButton = button;
   activeSpeechButton = button;
-  document.body.insertAdjacentHTML("beforeend", `
-    <div class="test-start-overlay" id="speechInputFallbackOverlay">
-      <form class="test-start-panel" onsubmit="submitSpeechInputFallback(event)">
-        <label for="speechInputFallbackText">音声で答える</label>
-        <p class="speech-input-help">百度などWeb音声認識が使えないブラウザー用です。入力欄をタップし、端末キーボードのマイク（🎤）で日本語を話してください。</p>
-        <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-describedby="speechInputFallbackHelp">
-        <span id="speechInputFallbackHelp" class="speech-input-help">音声入力後の文字を確認して「この答えで判定」を押してください。</span>
+  button.setAttribute("aria-expanded", "true");
+  button.insertAdjacentHTML("afterend", `
+    <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
+      <label class="speech-input-help" for="speechInputFallbackText">入力欄をタップし、端末キーボードのマイク（🎤）で日本語を話してください。</label>
+      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え">
+      <div class="speech-input-actions">
         <button type="submit">この答えで判定</button>
-        <button class="speech-input-cancel" type="button" onclick="closeSpeechInputFallback()">キャンセル</button>
-      </form>
-    </div>
+        <button class="speech-input-cancel" type="button" onclick="closeSpeechInputFallback()">閉じる</button>
+      </div>
+    </form>
   `);
   document.getElementById("speechInputFallbackText")?.focus();
 }
