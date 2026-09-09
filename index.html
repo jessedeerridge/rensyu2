@@ -4516,6 +4516,7 @@ const firebaseConfig = {
 };
 let firebaseConnection = null;
 let firebaseConnecting = false;
+let firebaseConnectedUnsubscribe = null;
 
 function readLocalTestResults() {
   try { return JSON.parse(localStorage.getItem(TEST_RESULTS_STORAGE_KEY) || "{}"); }
@@ -4549,14 +4550,11 @@ function saveTestResult(percent) {
 async function syncLocalTestResults() {
   if (!firebaseConnection) return;
   const results = readLocalTestResults();
-  const remoteSnapshot = await firebaseConnection.get(firebaseConnection.ref(firebaseConnection.db, "quickTests"));
-  const remoteResults = remoteSnapshot.exists() ? remoteSnapshot.val() : {};
   const patch = {};
   Object.entries(results).forEach(([studentKey, student]) => {
     patch[`quickTests/${studentKey}/name`] = student.name;
     Object.entries(student.modes || {}).forEach(([modeKey, result]) => {
-      const remoteBest = Number(remoteResults?.[studentKey]?.modes?.[modeKey]?.bestPct) || 0;
-      Object.entries({ ...result, bestPct: Math.max(Number(result.bestPct) || 0, remoteBest) }).forEach(([field, value]) => {
+      Object.entries(result).forEach(([field, value]) => {
         patch[`quickTests/${studentKey}/modes/${modeKey}/${field}`] = value;
       });
     });
@@ -4564,17 +4562,25 @@ async function syncLocalTestResults() {
   if (Object.keys(patch).length) await firebaseConnection.update(firebaseConnection.ref(firebaseConnection.db), patch);
 }
 
+function showFirebaseConnectionState(connected) {
+  const toggle = document.getElementById("firebaseToggle");
+  const state = document.getElementById("firebaseState");
+  toggle.classList.toggle("connected", connected);
+  state.textContent = connected ? "connected" : "not connected";
+}
+
 async function toggleFirebaseConnection() {
   const toggle = document.getElementById("firebaseToggle");
   const state = document.getElementById("firebaseState");
   if (firebaseConnecting) return;
   if (firebaseConnection) {
+    if (firebaseConnectedUnsubscribe) firebaseConnectedUnsubscribe();
+    firebaseConnectedUnsubscribe = null;
     firebaseConnection.goOffline(firebaseConnection.db);
     firebaseConnection = null;
     toggle.textContent = "Firebase OFF";
-    toggle.classList.remove("connected");
     toggle.setAttribute("aria-pressed", "false");
-    state.textContent = "not connected";
+    showFirebaseConnectionState(false);
     return;
   }
   firebaseConnecting = true;
@@ -4589,14 +4595,16 @@ async function toggleFirebaseConnection() {
     const db = databaseModule.getDatabase(app);
     databaseModule.goOnline(db);
     firebaseConnection = { db, ...databaseModule };
-    await syncLocalTestResults();
     toggle.textContent = "Firebase ON";
-    toggle.classList.add("connected");
     toggle.setAttribute("aria-pressed", "true");
-    state.textContent = "connected";
+    firebaseConnectedUnsubscribe = databaseModule.onValue(databaseModule.ref(db, ".info/connected"), snapshot => {
+      const connected = snapshot.val() === true;
+      showFirebaseConnectionState(connected);
+      if (connected) syncLocalTestResults().catch(error => console.error("Firebase sync failed:", error));
+    });
   } catch (error) {
     firebaseConnection = null;
-    state.textContent = "not connected";
+    showFirebaseConnectionState(false);
     toggle.textContent = "Firebase OFF";
   } finally {
     firebaseConnecting = false;
