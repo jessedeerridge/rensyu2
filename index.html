@@ -638,7 +638,8 @@
     cursor: default;
   }
 
-  .test-congratulations {
+  .test-start-panel.test-congratulations {
+    border-width: 6px;
     text-align: center;
     color: #ff4f9e;
     font-size: 25px;
@@ -654,6 +655,10 @@
     place-items: center;
     padding: 24px;
     background: rgba(255,255,255,0.9);
+  }
+
+  .test-start-overlay.test-congratulations-overlay {
+    background: transparent;
   }
 
   .test-start-panel {
@@ -4816,7 +4821,7 @@ function finishTestSuccessfullyIfComplete() {
   clearTestCountdown();
   const name = getSavedTestParticipantName();
   document.body.insertAdjacentHTML("beforeend", `
-    <div class="test-start-overlay" id="testCongratulations" role="status">
+    <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
       <div class="test-start-panel test-congratulations">${escapeHtml(name)}さん、<br>すごいですね！</div>
     </div>
   `);
