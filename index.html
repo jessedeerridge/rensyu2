@@ -40,6 +40,29 @@
     touch-action: manipulation;
   }
 
+  .firebase-control {
+    position: fixed;
+    top: max(10px, env(safe-area-inset-top));
+    right: 10px;
+    z-index: 30;
+    display: grid;
+    justify-items: center;
+    gap: 4px;
+  }
+
+  .firebase-control button {
+    border: 2px solid #fff;
+    border-radius: 999px;
+    padding: 7px 11px;
+    background: #5b6472;
+    color: #fff;
+    font: 800 11px/1.1 inherit;
+    box-shadow: 0 2px 8px rgba(0,0,0,.18);
+  }
+
+  .firebase-control button.connected { background: #16803a; }
+  .firebase-state { color: #555; font-size: 9px; font-weight: 900; text-shadow: 0 1px 2px #fff; }
+
   .screen {
     min-height: 100vh;
     padding: 18px;
@@ -2438,6 +2461,11 @@
 
 <body class="home-mode">
 
+<div class="firebase-control" aria-live="polite">
+  <button id="firebaseToggle" type="button" onclick="toggleFirebaseConnection()" aria-pressed="false">Firebase OFF</button>
+  <span class="firebase-state" id="firebaseState">not connected</span>
+</div>
+
 <div id="startNotice" class="start-notice-overlay" onclick="closeStartNotice()" role="button" aria-label="説明を閉じる">
   <table class="start-notice-table">
     <tr>
@@ -4476,6 +4504,125 @@ let speechInputFallbackMismatchTimer = null;
 let testCountdownTimer = null;
 let testCountdownDeadline = 0;
 let testSessionEnded = false;
+let testResultRecorded = false;
+const TEST_RESULTS_STORAGE_KEY = "rensyuuQuickTestResults_v1";
+const firebaseConfig = {
+  apiKey: "AIzaSyCaLCM4TXURROKyDKD_Mga8ZnWr1-Wk9Wg",
+  authDomain: "database-s-9e4b3.firebaseapp.com",
+  databaseURL: "https://database-s-9e4b3-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "database-s-9e4b3",
+  storageBucket: "database-s-9e4b3.firebasestorage.app",
+  messagingSenderId: "13648984683",
+  appId: "1:13648984683:web:c782d2963c253df69b8f2e"
+};
+let firebaseConnection = null;
+let firebaseConnecting = false;
+let firebaseConnectedUnsubscribe = null;
+
+function readLocalTestResults() {
+  try { return JSON.parse(localStorage.getItem(TEST_RESULTS_STORAGE_KEY) || "{}"); }
+  catch (error) { return {}; }
+}
+
+function firebaseSafeKey(value) {
+  return encodeURIComponent(String(value).trim()).replace(/[.#$\[\]\/]/g, character => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
+}
+
+function getCurrentTestModeName() {
+  return currentSection === "conjugation" ? `活用・${currentTableType}` : currentTableType;
+}
+
+function saveTestResult(percent) {
+  const name = getSavedTestParticipantName().trim();
+  if (!name) return;
+  const mode = getCurrentTestModeName();
+  const studentKey = `name_${firebaseSafeKey(name)}`;
+  const modeKey = firebaseSafeKey(mode);
+  const results = readLocalTestResults();
+  const previous = results?.[studentKey]?.modes?.[modeKey] || {};
+  const now = Date.now();
+  results[studentKey] = results[studentKey] || { name, modes: {} };
+  results[studentKey].name = name;
+  results[studentKey].modes[modeKey] = { mode, bestPct: Math.max(Number(previous.bestPct) || 0, percent), lastPct: percent, lastAt: now };
+  try { localStorage.setItem(TEST_RESULTS_STORAGE_KEY, JSON.stringify(results)); } catch (error) {}
+  if (firebaseConnection) syncLocalTestResults().catch(() => {});
+}
+
+async function syncLocalTestResults() {
+  if (!firebaseConnection) return;
+  const results = readLocalTestResults();
+  const patch = {};
+  Object.entries(results).forEach(([studentKey, student]) => {
+    patch[`quickTests/${studentKey}/name`] = student.name;
+    Object.entries(student.modes || {}).forEach(([modeKey, result]) => {
+      Object.entries(result).forEach(([field, value]) => {
+        patch[`quickTests/${studentKey}/modes/${modeKey}/${field}`] = value;
+      });
+    });
+  });
+  if (Object.keys(patch).length) await firebaseConnection.update(firebaseConnection.ref(firebaseConnection.db), patch);
+}
+
+function showFirebaseConnectionState(connected) {
+  const toggle = document.getElementById("firebaseToggle");
+  const state = document.getElementById("firebaseState");
+  toggle.classList.toggle("connected", connected);
+  state.textContent = connected ? "connected" : "not connected";
+}
+
+async function toggleFirebaseConnection() {
+  const toggle = document.getElementById("firebaseToggle");
+  const state = document.getElementById("firebaseState");
+  if (firebaseConnecting) return;
+  if (firebaseConnection) {
+    if (firebaseConnectedUnsubscribe) firebaseConnectedUnsubscribe();
+    firebaseConnectedUnsubscribe = null;
+    firebaseConnection.goOffline(firebaseConnection.db);
+    await firebaseConnection.signOut(firebaseConnection.auth).catch(() => {});
+    firebaseConnection = null;
+    toggle.textContent = "Firebase OFF";
+    toggle.setAttribute("aria-pressed", "false");
+    showFirebaseConnectionState(false);
+    return;
+  }
+  firebaseConnecting = true;
+  toggle.disabled = true;
+  state.textContent = "connecting…";
+  try {
+    const [appModule, databaseModule, authModule] = await Promise.all([
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js"),
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js")
+    ]);
+    const app = appModule.getApps().length ? appModule.getApps()[0] : appModule.initializeApp(firebaseConfig);
+    const auth = authModule.getAuth(app);
+    if (!auth.currentUser) {
+      try {
+        await authModule.signInAnonymously(auth);
+      } catch (error) {
+        // 公開書き込みルールのDBでも使えるよう、匿名認証が無効な場合は未認証で接続を続ける。
+        console.warn("Firebase anonymous sign-in failed; trying database rules without auth:", error);
+      }
+    }
+    const db = databaseModule.getDatabase(app);
+    databaseModule.goOnline(db);
+    firebaseConnection = { db, auth, signOut: authModule.signOut, ...databaseModule };
+    toggle.textContent = "Firebase ON";
+    toggle.setAttribute("aria-pressed", "true");
+    firebaseConnectedUnsubscribe = databaseModule.onValue(databaseModule.ref(db, ".info/connected"), snapshot => {
+      const connected = snapshot.val() === true;
+      showFirebaseConnectionState(connected);
+      if (connected) syncLocalTestResults().catch(error => console.error("Firebase sync failed:", error));
+    });
+  } catch (error) {
+    firebaseConnection = null;
+    showFirebaseConnectionState(false);
+    toggle.textContent = "Firebase OFF";
+  } finally {
+    firebaseConnecting = false;
+    toggle.disabled = false;
+  }
+}
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4940,7 +5087,20 @@ function updateTestCountdown() {
   const seconds = String(remainingSeconds % 60).padStart(2, "0");
   button.textContent = `${minutes}:${seconds}`;
   button.setAttribute("aria-label", `残り時間 ${minutes}分${seconds}秒`);
-  if (remainingSeconds === 0) clearTestCountdown();
+  if (remainingSeconds === 0) finishTestAtTimeLimit();
+}
+
+function getTestAchievementPercent() {
+  const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
+  if (!buttons.length) return 0;
+  return Math.round(buttons.filter(item => item.dataset.correct === "true").length / buttons.length * 100);
+}
+
+function finishTestAtTimeLimit() {
+  if (testSessionEnded || testResultRecorded) return;
+  clearTestCountdown();
+  saveTestResult(getTestAchievementPercent());
+  testResultRecorded = true;
 }
 
 function startTestCountdown() {
@@ -4958,6 +5118,10 @@ function finishTestSuccessfullyIfComplete() {
   testSessionEnded = true;
   stopSpeechRecognition();
   clearTestCountdown();
+  if (!testResultRecorded) {
+    saveTestResult(100);
+    testResultRecorded = true;
+  }
   const name = getSavedTestParticipantName();
   document.body.insertAdjacentHTML("beforeend", `
     <div class="test-start-overlay test-congratulations-overlay" id="testCongratulations" role="status">
@@ -5528,6 +5692,7 @@ function getSavedTestParticipantName() {
 
 function beginTestQuestions() {
   testSessionEnded = false;
+  testResultRecorded = false;
   startSpeechTestSession();
   startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
