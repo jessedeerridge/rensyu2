@@ -662,6 +662,18 @@
     font-weight: 800;
   }
 
+  .speech-input-help {
+    margin: 0 0 14px;
+    color: #666;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
+  .test-start-panel .speech-input-cancel {
+    margin-top: 10px;
+    background: #999;
+  }
+
   .test-transcript {
     display: block;
     overflow-wrap: anywhere;
@@ -4351,6 +4363,8 @@ let speechAnswerTimeoutTimer = null;
 let speechRetryCount = 0;
 let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
+let speechInputFallbackMode = false;
+let speechInputFallbackButton = null;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4710,6 +4724,64 @@ function stopSpeechRecognition() {
   activeSpeechSegments.clear();
   speechSessionError = "";
   abortCurrentSpeechRecognition();
+  closeSpeechInputFallback();
+}
+
+function closeSpeechInputFallback(clearTarget = true) {
+  document.getElementById("speechInputFallbackOverlay")?.remove();
+  if (clearTarget) {
+    if (activeSpeechButton === speechInputFallbackButton) activeSpeechButton = null;
+    speechInputFallbackButton = null;
+  }
+}
+
+function openSpeechInputFallback(button) {
+  closeSpeechInputFallback();
+  speechInputFallbackButton = button;
+  activeSpeechButton = button;
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="test-start-overlay" id="speechInputFallbackOverlay">
+      <form class="test-start-panel" onsubmit="submitSpeechInputFallback(event)">
+        <label for="speechInputFallbackText">音声で答える</label>
+        <p class="speech-input-help">百度などWeb音声認識が使えないブラウザー用です。入力欄をタップし、端末キーボードのマイク（🎤）で日本語を話してください。</p>
+        <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-describedby="speechInputFallbackHelp">
+        <span id="speechInputFallbackHelp" class="speech-input-help">音声入力後の文字を確認して「この答えで判定」を押してください。</span>
+        <button type="submit">この答えで判定</button>
+        <button class="speech-input-cancel" type="button" onclick="closeSpeechInputFallback()">キャンセル</button>
+      </form>
+    </div>
+  `);
+  document.getElementById("speechInputFallbackText")?.focus();
+}
+
+function submitSpeechInputFallback(event) {
+  event.preventDefault();
+  const button = speechInputFallbackButton;
+  const input = document.getElementById("speechInputFallbackText");
+  const transcript = input?.value.trim() || "";
+  if (!button || !transcript) {
+    input?.reportValidity();
+    return;
+  }
+  closeSpeechInputFallback(false);
+  speechInputFallbackButton = null;
+  activeSpeechButton = button;
+  activeSpeechSegments.clear();
+  activeSpeechSegments.set(0, transcript);
+  setSpeechButtonMessage(button, transcript);
+  gradeSpeechAnswer(button);
+}
+
+function enableSpeechInputFallback(button, reason, openImmediately = false) {
+  speechInputFallbackMode = true;
+  document.querySelectorAll("#tableArea .test-answer-button").forEach(answerButton => {
+    if (answerButton.dataset.correct !== "true") answerButton.dataset.speechFallback = "true";
+  });
+  setSpeechButtonClass(button);
+  setSpeechButtonMessage(button, `${reason} もう一度タップして、キーボードのマイクから答えてください`);
+  button.querySelector(".test-status").textContent = "代替音声入力 🎤⌨️";
+  activeSpeechButton = null;
+  if (openImmediately) openSpeechInputFallback(button);
 }
 
 function getSpeechErrorMessage(error) {
@@ -4789,7 +4861,13 @@ function startNextSpeechQuestion(currentButton) {
   const nextButton = buttons
     .slice(buttons.indexOf(currentButton) + 1)
     .find(button => button.dataset.correct !== "true");
-  if (nextButton) startSpeechTest(nextButton);
+  if (!nextButton) return;
+  if (speechInputFallbackMode) {
+    nextButton.dataset.speechFallback = "true";
+    setSpeechButtonMessage(nextButton, "タップして、キーボードのマイクから答える 🎤⌨️");
+    return;
+  }
+  startSpeechTest(nextButton);
 }
 
 function isSpeechSkipRequest(transcript) {
@@ -4843,6 +4921,10 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
   if (staysCorrect) {
     startNextSpeechQuestion(target);
   } else {
+    if (target.dataset.speechFallback === "true") {
+      target.querySelector(".test-status").textContent = "× もう一度タップして音声入力";
+      return correct;
+    }
     // 誤答表示で一度閉じた後、次のイベントループですぐ同じ問題を再開する。
     speechRetryCount = 0;
     activeSpeechButton = target;
@@ -4860,9 +4942,7 @@ function startSpeechRecognitionForButton(button) {
     speechSessionError = window.isSecureContext
       ? "このブラウザーはWeb音声認識に対応していません。対応する別のブラウザーでお試しください"
       : "安全でない接続（HTTP）のため音声認識を使用できません。HTTPSでページを開いてください";
-    setSpeechButtonClass(button);
-    setSpeechButtonMessage(button, speechSessionError);
-    activeSpeechButton = null;
+    enableSpeechInputFallback(button, speechSessionError, true);
     return;
   }
 
@@ -4898,10 +4978,15 @@ function startSpeechRecognitionForButton(button) {
     clearSpeechTimers();
     speechRecognition = null;
     activeSpeechSegments.clear();
-    setSpeechButtonClass(button);
-    setSpeechButtonMessage(button, getSpeechErrorMessage(event.error));
-    button.querySelector(".test-status").textContent = "";
-    if (activeSpeechButton === button) activeSpeechButton = null;
+    const message = getSpeechErrorMessage(event.error);
+    if (["service-not-allowed", "network", "language-not-supported"].includes(event.error)) {
+      enableSpeechInputFallback(button, message);
+    } else {
+      setSpeechButtonClass(button);
+      setSpeechButtonMessage(button, message);
+      button.querySelector(".test-status").textContent = "";
+      if (activeSpeechButton === button) activeSpeechButton = null;
+    }
   };
   recognition.onend = () => {
     if (speechRecognition !== recognition) return;
@@ -4923,6 +5008,10 @@ function startSpeechRecognitionForButton(button) {
 }
 
 function startSpeechTest(button) {
+  if (speechInputFallbackMode || button.dataset.speechFallback === "true") {
+    openSpeechInputFallback(button);
+    return;
+  }
   clearSpeechTimers();
   speechRetryCount = 0;
   abortCurrentSpeechRecognition();
@@ -4939,6 +5028,8 @@ function startSpeechTest(button) {
 }
 
 function startSpeechTestSession() {
+  speechInputFallbackMode = false;
+  speechInputFallbackButton = null;
   const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   speechSessionError = Recognition
     ? ""
