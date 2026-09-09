@@ -5458,7 +5458,8 @@ function beginTestQuestions() {
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
   if (firstQuestion) {
     firstQuestion.focus({ preventScroll: true });
-    startSpeechTest(firstQuestion);
+    // 手動で問題を選んだときと同じ経路を通し、開始直後から1問目を選択状態にする。
+    firstQuestion.click();
   }
 }
 
