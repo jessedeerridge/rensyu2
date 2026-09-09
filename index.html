@@ -4768,7 +4768,7 @@ function openSpeechInputFallback(button, focusInput = true) {
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentHTML("afterend", `
     <form class="speech-input-inline" id="speechInputFallbackEditor" onsubmit="submitSpeechInputFallback(event)">
-      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え" placeholder="キーボードの🎤で話す">
+      <input id="speechInputFallbackText" lang="ja" inputmode="text" autocomplete="off" enterkeyhint="done" required aria-label="音声入力された答え。キーボードのマイクボタンを押して開始" placeholder="🎤を押して開始">
     </form>
   `);
   const input = document.getElementById("speechInputFallbackText");
@@ -4808,6 +4808,10 @@ function submitSpeechInputFallback(event) {
   activeSpeechSegments.clear();
   activeSpeechSegments.set(0, transcript);
   setSpeechButtonMessage(button, transcript);
+  if (isSpeechSkipRequest(transcript)) {
+    skipSpeechQuestion(button, transcript);
+    return;
+  }
   gradeSpeechAnswer(button);
 }
 
