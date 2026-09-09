@@ -4377,12 +4377,14 @@ let activeSpeechButton = null;
 let speechSessionError = "";
 let speechGradeTimer = null;
 let speechAnswerTimeoutTimer = null;
+let speechNextQuestionTimer = null;
 let speechRetryCount = 0;
 let activeSpeechSegments = new Map();
 let localSpeechAvailable = false;
 let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackGradeTimer = null;
+let speechInputFallbackAcceptAfter = 0;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4401,8 +4403,10 @@ function setSpeechButtonMessage(button, message) {
 function clearSpeechTimers() {
   if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
   if (speechAnswerTimeoutTimer !== null) clearTimeout(speechAnswerTimeoutTimer);
+  if (speechNextQuestionTimer !== null) clearTimeout(speechNextQuestionTimer);
   speechGradeTimer = null;
   speechAnswerTimeoutTimer = null;
+  speechNextQuestionTimer = null;
 }
 
 function abortCurrentSpeechRecognition() {
@@ -4748,6 +4752,7 @@ function stopSpeechRecognition() {
 function closeSpeechInputFallback(clearTarget = true) {
   if (speechInputFallbackGradeTimer !== null) clearTimeout(speechInputFallbackGradeTimer);
   speechInputFallbackGradeTimer = null;
+  speechInputFallbackAcceptAfter = 0;
   const input = document.getElementById("speechInputFallbackText");
   if (input) {
     input.value = "";
@@ -4772,9 +4777,15 @@ function openSpeechInputFallback(button) {
     </form>
   `);
   const input = document.getElementById("speechInputFallbackText");
-  input?.addEventListener("input", () => scheduleSpeechInputFallbackGrade(input));
+  speechInputFallbackAcceptAfter = 0;
+  input?.addEventListener("input", () => handleSpeechInputFallbackInput(input));
   input?.addEventListener("compositionstart", cancelSpeechInputFallbackGrade);
-  input?.addEventListener("compositionend", () => scheduleSpeechInputFallbackGrade(input));
+  input?.addEventListener("compositionupdate", () => {
+    queueMicrotask(() => {
+      if (input.isConnected) handleSpeechInputFallbackInput(input);
+    });
+  });
+  input?.addEventListener("compositionend", () => handleSpeechInputFallbackInput(input));
   input?.focus();
 }
 
@@ -4788,12 +4799,46 @@ function moveSpeechInputFallback(button) {
   }
   speechInputFallbackButton?.setAttribute("aria-expanded", "false");
   input.value = "";
+  // キーボード音声入力の終了直後に届く前問の末尾は、次問の回答として受け付けない。
+  speechInputFallbackAcceptAfter = Date.now() + 400;
   speechInputFallbackButton = button;
   activeSpeechButton = button;
   button.setAttribute("aria-expanded", "true");
   button.insertAdjacentElement("afterend", editor);
   // フォーカス中の同じinput要素を移動することで、モバイルキーボードを閉じずに次へ進む。
   input.focus();
+}
+
+function handleSpeechInputFallbackInput(input) {
+  if (Date.now() < speechInputFallbackAcceptAfter) {
+    input.value = "";
+    cancelSpeechInputFallbackGrade();
+    return;
+  }
+  const transcript = input?.value.trim() || "";
+  if (transcript && (isSpeechSkipRequest(transcript) || isSpeechInputFallbackAnswerCorrect(transcript))) {
+    cancelSpeechInputFallbackGrade();
+    submitSpeechInputFallback();
+    return;
+  }
+  scheduleSpeechInputFallbackGrade(input);
+}
+
+function isSpeechInputFallbackAnswerCorrect(transcript) {
+  const button = speechInputFallbackButton;
+  if (!button) return false;
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  return isSpeechAnswerCorrect(
+    transcript,
+    [button.dataset.answer, button.dataset.answerReading],
+    kanjiReadingMap,
+    button.dataset.conjugation === "true"
+  );
 }
 
 function cancelSpeechInputFallbackGrade() {
@@ -4804,10 +4849,14 @@ function cancelSpeechInputFallbackGrade() {
 function scheduleSpeechInputFallbackGrade(input) {
   cancelSpeechInputFallbackGrade();
   if (!input?.value.trim()) return;
+  const answers = [speechInputFallbackButton?.dataset.answer, speechInputFallbackButton?.dataset.answerReading]
+    .filter(Boolean);
+  const shortestAnswerLength = Math.min(...answers.map(answer => normalizeSpeechText(answer).length));
+  const gradeDelay = shortestAnswerLength <= 4 ? 250 : 500;
   speechInputFallbackGradeTimer = setTimeout(() => {
     speechInputFallbackGradeTimer = null;
     submitSpeechInputFallback();
-  }, 500);
+  }, gradeDelay);
 }
 
 function submitSpeechInputFallback(event) {
@@ -4929,7 +4978,12 @@ function startNextSpeechQuestion(currentButton) {
     moveSpeechInputFallback(nextButton);
     return;
   }
-  startSpeechTest(nextButton);
+  setSpeechButtonMessage(nextButton, "マイクを準備しています…");
+  // 前問の音声の末尾を新しい認識器が拾わないよう、マイクを切ってから少し待って開始する。
+  speechNextQuestionTimer = setTimeout(() => {
+    speechNextQuestionTimer = null;
+    if (testModeActive && nextButton.dataset.correct !== "true") startSpeechTest(nextButton);
+  }, 400);
 }
 
 function isSpeechSkipRequest(transcript) {
@@ -5035,7 +5089,20 @@ function startSpeechRecognitionForButton(button) {
     }
     if (gradeSpeechAnswer(button, true)) return;
     const latestResult = event.results[event.results.length - 1];
-    if (!latestResult.isFinal) return;
+    if (!latestResult.isFinal) {
+      const answerLength = Math.min(
+        normalizeSpeechText(button.dataset.answer || "").length || Infinity,
+        normalizeSpeechText(button.dataset.answerReading || "").length || Infinity
+      );
+      if (answerLength <= 4) {
+        if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+        speechGradeTimer = setTimeout(() => {
+          speechGradeTimer = null;
+          if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
+        }, 250);
+      }
+      return;
+    }
     gradeSpeechAnswer(button);
   };
   recognition.onerror = event => {
