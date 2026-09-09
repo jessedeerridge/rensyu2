@@ -4719,6 +4719,37 @@ function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConj
   });
 }
 
+function doesSpeechTailApproachAnswer(transcript, answers, kanjiReadingMap = [], isConjugation = false) {
+  const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
+  if (!normalizedTranscript) return true;
+
+  return answers.some(answer => {
+    const answerVariants = [answer, String(answer || "").replace(/^\s*あ[!！]\s*/, "")];
+    return answerVariants.some(answerVariant => {
+      const normalizedAnswer = normalizeSpeechForComparison(answerVariant, kanjiReadingMap, isConjugation);
+      if (!normalizedAnswer) return false;
+
+      // 認識結果の冒頭に「えっと」や誤変換が混じっても、末尾の文字が
+      // 正解の先頭から順番に進んだ先にあれば「言いかけ」とみなす。これは
+      // 完全一致時の isOrderedSpeechMatch と同じく、途中の余分な文字を許容する。
+      const transcriptCharacters = Array.from(normalizedTranscript);
+      const answerCharacters = Array.from(normalizedAnswer);
+      for (let start = 0; start < transcriptCharacters.length; start += 1) {
+        let answerIndex = 0;
+        let lastMatchedTranscriptIndex = -1;
+        for (let index = start; index < transcriptCharacters.length; index += 1) {
+          if (transcriptCharacters[index] !== answerCharacters[answerIndex]) continue;
+          answerIndex += 1;
+          lastMatchedTranscriptIndex = index;
+          if (answerIndex === answerCharacters.length) break;
+        }
+        if (answerIndex > 0 && lastMatchedTranscriptIndex === transcriptCharacters.length - 1) return true;
+      }
+      return false;
+    });
+  });
+}
+
 function getCellAnswerText(cell) {
   const copy = cell.cloneNode(true);
   copy.querySelectorAll("rt, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
@@ -5070,7 +5101,9 @@ function startSpeechRecognitionForButton(button) {
   speechRecognition = recognition;
   recognition.lang = "ja-JP";
   recognition.interimResults = true;
-  recognition.continuous = false;
+  // 確定した短い区切りも連結して採点できるよう、正誤が決まるまで認識を続ける。
+  // false だと多くのブラウザーでは言いかけも isFinal になり、末尾判定前に終了する。
+  recognition.continuous = true;
   if (localSpeechAvailable && "processLocally" in recognition) recognition.processLocally = true;
 
   recognition.onstart = () => beginSpeechListening(button, recognition);
@@ -5089,19 +5122,33 @@ function startSpeechRecognitionForButton(button) {
       return;
     }
     if (gradeSpeechAnswer(button, true)) return;
+    let kanjiReadingMap = [];
+    try {
+      kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+    } catch (error) {
+      kanjiReadingMap = [];
+    }
+    const approachesAnswer = doesSpeechTailApproachAnswer(
+      transcript,
+      [button.dataset.answer, button.dataset.answerReading],
+      kanjiReadingMap,
+      button.dataset.conjugation === "true"
+    );
     const latestResult = event.results[event.results.length - 1];
+    if (approachesAnswer) {
+      // isFinal は回答全体の終端とは限らない。末尾が正解にかすっている間は、
+      // 確定結果でも録音と次の認識結果への文字列連結を継続する。
+      if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+      speechGradeTimer = null;
+      return;
+    }
     if (!latestResult.isFinal) {
-      const answerLength = Math.min(
-        normalizeSpeechText(button.dataset.answer || "").length || Infinity,
-        normalizeSpeechText(button.dataset.answerReading || "").length || Infinity
-      );
-      if (answerLength <= 4) {
-        if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
-        speechGradeTimer = setTimeout(() => {
-          speechGradeTimer = null;
-          if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
-        }, 250);
-      }
+      // 正解の言いかけでない中間結果は、短い猶予後に誤答として録音を切る。
+      if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+      speechGradeTimer = setTimeout(() => {
+        speechGradeTimer = null;
+        if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
+      }, 350);
       return;
     }
     gradeSpeechAnswer(button);
