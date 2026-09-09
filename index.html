@@ -5010,18 +5010,25 @@ function openSpeechInputFallback(button) {
 
 function bindSpeechInputFallbackInput(input) {
   if (!input) return;
+  const rememberInputLocale = event => {
+    const locale = String(event.locale || "").trim().toLowerCase();
+    if (locale) input.dataset.inputLocale = locale;
+  };
   input.addEventListener("input", event => {
     if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
     handleSpeechInputFallbackInput(input, event.isComposing);
   });
-  input.addEventListener("compositionupdate", () => {
+  input.addEventListener("compositionstart", rememberInputLocale);
+  input.addEventListener("compositionupdate", event => {
+    rememberInputLocale(event);
     queueMicrotask(() => {
       // Baidu keyboard keeps dictated text in an IME composition. Correct answers
       // may be accepted immediately, but partial text must not be graded as wrong.
       if (input.isConnected) handleSpeechInputFallbackInput(input, true);
     });
   });
-  input.addEventListener("compositionend", () => {
+  input.addEventListener("compositionend", event => {
+    rememberInputLocale(event);
     if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
     handleSpeechInputFallbackInput(input);
   });
@@ -5035,6 +5042,7 @@ function resetSpeechInputFallbackInput() {
   // input.value alone lets Baidu keyboard restore its pending transcription.
   const replacement = input.cloneNode();
   replacement.value = "";
+  replacement.removeAttribute("data-input-locale");
   input.replaceWith(replacement);
   bindSpeechInputFallbackInput(replacement);
   replacement.focus();
@@ -5135,9 +5143,15 @@ function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFal
   });
 }
 
-function shouldPromptForJapaneseKeyboard(transcript) {
+function shouldPromptForJapaneseKeyboard(transcript, input = null) {
   const text = String(transcript || "").trim();
-  if (!text || /[\u3040-\u30ff\u3400-\u9fff]/.test(text)) return false;
+  const inputLocale = String(input?.dataset.inputLocale || "").toLowerCase();
+  if (/^zh(?:-|$)/.test(inputLocale)) return true;
+  if (!text || /[\u3040-\u30ff]/.test(text)) return false;
+  // 漢字は日本語と中国語で同じUnicodeを使うため一律判定せず、簡体字に
+  // 特有の文字が含まれる場合だけ中国語入力の可能性が高いと判断する。
+  if (/[这们为说还没请吗时后里习练声浏览键盘换谁语听见买卖车门间]/.test(text)) return true;
+  if (/[\u3400-\u9fff]/.test(text)) return false;
   return /[a-z0-9]/i.test(text);
 }
 
@@ -5164,7 +5178,7 @@ function handleSpeechInputFallbackInput(input, isComposing = false) {
       || speechInputFallbackButton !== expectedButton
       || input.value.trim() !== expectedTranscript
       || isSpeechInputFallbackPotentialMatch(expectedTranscript, expectedButton)) return;
-    if (shouldPromptForJapaneseKeyboard(expectedTranscript)) {
+    if (shouldPromptForJapaneseKeyboard(expectedTranscript, input)) {
       resetSpeechInputFallbackInput();
       window.alert("请切换到日语键盘。");
       return;
