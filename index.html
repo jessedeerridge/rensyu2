@@ -4719,6 +4719,33 @@ function isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap = [], isConj
   });
 }
 
+function getSpeechAnswerProgress(transcript, answers, kanjiReadingMap = [], isConjugation = false) {
+  const normalizedTranscript = normalizeSpeechForComparison(transcript, kanjiReadingMap, isConjugation);
+  if (!normalizedTranscript) return "possible";
+  if (isSpeechAnswerCorrect(transcript, answers, kanjiReadingMap, isConjugation)) return "correct";
+
+  const normalizedAnswers = answers.flatMap(answer => [
+    answer,
+    String(answer || "").replace(/^\s*あ[!！]\s*/, "")
+  ])
+    .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation))
+    .filter(Boolean);
+
+  // 認識結果の冒頭には、前の発話や雑音が混ざることがある。末尾が正解の
+  // 冒頭に少しでもつながっていれば発話途中とみなし、マイクを止めずに待つ。
+  const hasTrailingAnswerStart = normalizedAnswers.some(answer => {
+    const overlapLimit = Math.min(normalizedTranscript.length, answer.length);
+    for (let overlap = overlapLimit; overlap >= 1; overlap -= 1) {
+      if (normalizedTranscript.endsWith(answer.slice(0, overlap))) return true;
+    }
+    return false;
+  });
+  if (hasTrailingAnswerStart) return "possible";
+
+  // 一文字だけの暫定結果は次の認識イベントで大きく書き換わりやすい。
+  return Array.from(normalizedTranscript).length < 2 ? "possible" : "incorrect";
+}
+
 function getCellAnswerText(cell) {
   const copy = cell.cloneNode(true);
   copy.querySelectorAll("rt, .answer-mask-cover, .reason-kara-note").forEach(node => node.remove());
@@ -5089,19 +5116,27 @@ function startSpeechRecognitionForButton(button) {
       return;
     }
     if (gradeSpeechAnswer(button, true)) return;
+    let kanjiReadingMap = [];
+    try {
+      kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+    } catch (error) {
+      kanjiReadingMap = [];
+    }
+    const answerProgress = getSpeechAnswerProgress(
+      transcript,
+      [button.dataset.answer, button.dataset.answerReading],
+      kanjiReadingMap,
+      button.dataset.conjugation === "true"
+    );
+    if (answerProgress === "incorrect") {
+      gradeSpeechAnswer(button);
+      return;
+    }
     const latestResult = event.results[event.results.length - 1];
     if (!latestResult.isFinal) {
-      const answerLength = Math.min(
-        normalizeSpeechText(button.dataset.answer || "").length || Infinity,
-        normalizeSpeechText(button.dataset.answerReading || "").length || Infinity
-      );
-      if (answerLength <= 4) {
-        if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
-        speechGradeTimer = setTimeout(() => {
-          speechGradeTimer = null;
-          if (activeSpeechButton === button && speechRecognition === recognition) gradeSpeechAnswer(button);
-        }, 250);
-      }
+      // 正解につながる末尾が残っている間は、短い答えでも録音を継続する。
+      if (speechGradeTimer !== null) clearTimeout(speechGradeTimer);
+      speechGradeTimer = null;
       return;
     }
     gradeSpeechAnswer(button);
