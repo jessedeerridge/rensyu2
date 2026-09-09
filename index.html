@@ -4523,6 +4523,7 @@ let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackAcceptAfter = 0;
 let speechInputFallbackMismatchTimer = null;
+let speechInputFallbackCompositionTimer = null;
 let testCountdownTimer = null;
 let testCountdownDeadline = 0;
 let testSessionEnded = false;
@@ -5164,6 +5165,7 @@ function finishTestSuccessfullyIfComplete() {
 
 function closeSpeechInputFallback(clearTarget = true) {
   clearSpeechInputFallbackMismatchTimer();
+  clearSpeechInputFallbackCompositionTimer();
   speechInputFallbackAcceptAfter = 0;
   const input = document.getElementById("speechInputFallbackText");
   if (input) {
@@ -5231,6 +5233,7 @@ function bindSpeechInputFallbackInput(input) {
 
 function resetSpeechInputFallbackInput() {
   clearSpeechInputFallbackMismatchTimer();
+  clearSpeechInputFallbackCompositionTimer();
   const input = document.getElementById("speechInputFallbackText");
   if (!input) return null;
   // Replacing the focused element terminates the old IME composition. Clearing
@@ -5267,6 +5270,29 @@ function moveSpeechInputFallback(button) {
 function clearSpeechInputFallbackMismatchTimer() {
   if (speechInputFallbackMismatchTimer !== null) clearTimeout(speechInputFallbackMismatchTimer);
   speechInputFallbackMismatchTimer = null;
+}
+
+function clearSpeechInputFallbackCompositionTimer() {
+  if (speechInputFallbackCompositionTimer !== null) clearTimeout(speechInputFallbackCompositionTimer);
+  speechInputFallbackCompositionTimer = null;
+}
+
+function armSpeechInputFallbackCompositionTimer(input) {
+  clearSpeechInputFallbackCompositionTimer();
+  const expectedButton = speechInputFallbackButton;
+  const expectedTranscript = input?.value.trim() || "";
+  if (!expectedTranscript) return;
+
+  // 一部のキーボードでは最初の音声入力だけcompositionendが届かず、
+  // 「録音保留」のままになる。入力が止まったら確定済みの文字として処理し、
+  // 正答途中であっても一度採点して、同じ問題のマイクを再開できるようにする。
+  speechInputFallbackCompositionTimer = setTimeout(() => {
+    speechInputFallbackCompositionTimer = null;
+    if (input !== document.getElementById("speechInputFallbackText")
+      || speechInputFallbackButton !== expectedButton
+      || input.value.trim() !== expectedTranscript) return;
+    handleSpeechInputFallbackInput(input, false, true);
+  }, 1800);
 }
 
 function getSpeechInputFallbackAnswers(button) {
@@ -5349,8 +5375,9 @@ function shouldPromptForJapaneseKeyboard(transcript, input = null) {
   return /[a-z0-9]/i.test(text);
 }
 
-function handleSpeechInputFallbackInput(input, isComposing = false) {
+function handleSpeechInputFallbackInput(input, isComposing = false, compositionTimedOut = false) {
   clearSpeechInputFallbackMismatchTimer();
+  if (!isComposing) clearSpeechInputFallbackCompositionTimer();
   if (Date.now() < speechInputFallbackAcceptAfter) {
     input.value = "";
     return;
@@ -5360,7 +5387,15 @@ function handleSpeechInputFallbackInput(input, isComposing = false) {
     submitSpeechInputFallback();
     return;
   }
-  if (!transcript || isComposing || isSpeechInputFallbackPotentialMatch(transcript)) return;
+  if (!transcript) return;
+  if (isComposing) {
+    armSpeechInputFallbackCompositionTimer(input);
+    return;
+  }
+  if (!compositionTimedOut && isSpeechInputFallbackPotentialMatch(transcript)) {
+    armSpeechInputFallbackCompositionTimer(input);
+    return;
+  }
 
   // 正解の先頭と末尾がかすっていない状態が続いた時だけ誤答にする。
   // 短時間の変換候補や発話途中の揺れでマイクを切らないよう、入力停止後に再確認する。
