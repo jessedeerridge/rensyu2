@@ -4514,6 +4514,7 @@ let firebaseConnected = false;
 let firebaseEnabled = false;
 let firebaseDatabase = null;
 let firebaseApi = null;
+let firebaseAuth = null;
 let firebaseConnectionUnsubscribe = null;
 
 const firebaseConfig = {
@@ -4602,11 +4603,14 @@ async function toggleFirebaseConnection() {
   const button = document.getElementById("firebaseToggle");
   if (button) { button.disabled = true; button.textContent = "connecting..."; }
   try {
-    const [appModule, databaseModule] = await Promise.all([
+    const [appModule, databaseModule, authModule] = await Promise.all([
       import("https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js"),
-      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js")
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js"),
+      import("https://www.gstatic.com/firebasejs/9.23.0/firebase-auth.js")
     ]);
     const app = appModule.getApps().length ? appModule.getApp() : appModule.initializeApp(firebaseConfig);
+    firebaseAuth = authModule.getAuth(app);
+    if (!firebaseAuth.currentUser) await authModule.signInAnonymously(firebaseAuth);
     firebaseDatabase = databaseModule.getDatabase(app);
     firebaseApi = databaseModule;
     databaseModule.goOnline(firebaseDatabase);
