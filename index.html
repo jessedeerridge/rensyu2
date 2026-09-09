@@ -619,6 +619,33 @@
     box-shadow: 0 3px 10px rgba(0,0,0,0.2);
   }
 
+  .test-timer-btn {
+    position: fixed;
+    left: 96px;
+    bottom: max(10px, env(safe-area-inset-bottom));
+    z-index: 80;
+    width: 58px;
+    height: 58px;
+    padding: 0;
+    border: 3px solid #fff;
+    border-radius: 50%;
+    background: #ff8ac2;
+    color: #fff;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 900;
+    box-shadow: 0 3px 10px rgba(0,0,0,0.2);
+    cursor: default;
+  }
+
+  .test-congratulations {
+    text-align: center;
+    color: #ff4f9e;
+    font-size: 25px;
+    font-weight: 900;
+    line-height: 1.55;
+  }
+
   .test-start-overlay {
     position: fixed;
     inset: 0;
@@ -4385,6 +4412,9 @@ let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackAcceptAfter = 0;
 let speechInputFallbackMismatchTimer = null;
+let testCountdownTimer = null;
+let testCountdownDeadline = 0;
+let testSessionEnded = false;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4504,6 +4534,7 @@ const SPEECH_EQUIVALENT_GROUPS = [
   ["明日は", "あしたは", "明日", "あした"],
   ["名前を", "なまえを", "名前は", "なまえは"],
   ["住んで", "すんで", "済んで"],
+  ["待てます", "まてます", "待ってます", "まってます"],
   ["行かなくてもいいです", "いかなくてもいいです", "来なくてもいいです", "こなくてもいいです"],
   [
     "雨が降るそうです", "あめがふるそうです", "雨が降るらしいです", "あめがふるらしいです",
@@ -4512,7 +4543,6 @@ const SPEECH_EQUIVALENT_GROUPS = [
     "雨みたいです", "あめみたいです", "雨のようです", "あめのようです"
   ],
   [
-    "人気だ", "にんきだ", "人気がある", "にんきがある", "有名", "ゆうめい",
     "人気だそうです", "にんきだそうです", "人気のようです", "にんきのようです",
     "人気みたいです", "にんきみたいです", "人気らしいです", "にんきらしいです",
     "人気があるそうです", "にんきがあるそうです", "人気があるようです", "にんきがあるようです",
@@ -4590,8 +4620,10 @@ const SPEECH_EQUIVALENT_ALIASES = SPEECH_EQUIVALENT_GROUPS
   .sort((a, b) => b.alias.length - a.alias.length);
 
 const CONJUGATION_READING_GROUPS = [
-  ["買", "勝", "か"],
+  ["買", "勝", "変", "か"],
   ["書", "描", "掻", "か"],
+  ["話", "離", "放", "はな"],
+  ["行", "言", "い"],
   ["合", "会", "あ"],
   ["立", "建", "た"],
   ["読", "呼", "よ"],
@@ -4747,6 +4779,48 @@ function stopSpeechRecognition() {
   speechSessionError = "";
   abortCurrentSpeechRecognition();
   closeSpeechInputFallback();
+}
+
+function clearTestCountdown(removeButton = true) {
+  if (testCountdownTimer !== null) clearInterval(testCountdownTimer);
+  testCountdownTimer = null;
+  if (removeButton) document.getElementById("testTimerBtn")?.remove();
+}
+
+function updateTestCountdown() {
+  const button = document.getElementById("testTimerBtn");
+  if (!button || !testCountdownDeadline) return;
+  const remainingSeconds = Math.max(0, Math.ceil((testCountdownDeadline - Date.now()) / 1000));
+  const minutes = Math.floor(remainingSeconds / 60);
+  const seconds = String(remainingSeconds % 60).padStart(2, "0");
+  button.textContent = `${minutes}:${seconds}`;
+  button.setAttribute("aria-label", `残り時間 ${minutes}分${seconds}秒`);
+  if (remainingSeconds === 0) clearTestCountdown();
+}
+
+function startTestCountdown() {
+  clearTestCountdown(false);
+  const durationSeconds = currentSection === "conjugation" ? 60 : 180;
+  testCountdownDeadline = Date.now() + durationSeconds * 1000;
+  updateTestCountdown();
+  testCountdownTimer = setInterval(updateTestCountdown, 250);
+}
+
+function finishTestSuccessfullyIfComplete() {
+  const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
+  if (!buttons.length || buttons.some(button => button.dataset.correct !== "true")) return false;
+  if (!testCountdownDeadline || Date.now() > testCountdownDeadline + 10000) return false;
+
+  testSessionEnded = true;
+  stopSpeechRecognition();
+  clearTestCountdown();
+  const name = getSavedTestParticipantName();
+  document.body.insertAdjacentHTML("beforeend", `
+    <div class="test-start-overlay" id="testCongratulations" role="status">
+      <div class="test-start-panel test-congratulations">${escapeHtml(name)}さん、<br>すごいですね！</div>
+    </div>
+  `);
+  return true;
 }
 
 function closeSpeechInputFallback(clearTarget = true) {
@@ -5056,6 +5130,7 @@ function beginSpeechListening(button, recognition) {
 }
 
 function startNextSpeechQuestion(currentButton) {
+  if (testSessionEnded) return;
   const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
   const nextButton = buttons
     .slice(buttons.indexOf(currentButton) + 1)
@@ -5126,7 +5201,7 @@ function gradeSpeechAnswer(target, onlyIfCorrect = false) {
   activeSpeechSegments.clear();
   abortCurrentSpeechRecognition();
   if (staysCorrect) {
-    startNextSpeechQuestion(target);
+    if (!finishTestSuccessfullyIfComplete()) startNextSpeechQuestion(target);
   } else {
     if (target.dataset.speechFallback === "true") {
       // 誤答を消した空欄で同じ問題を再開する。
@@ -5231,6 +5306,7 @@ function startSpeechRecognitionForButton(button) {
 }
 
 function startSpeechTest(button) {
+  if (testSessionEnded) return;
   if (speechInputFallbackMode || button.dataset.speechFallback === "true") {
     openSpeechInputFallback(button);
     return;
@@ -5270,7 +5346,9 @@ function getSavedTestParticipantName() {
 }
 
 function beginTestQuestions() {
+  testSessionEnded = false;
   startSpeechTestSession();
+  startTestCountdown();
   const firstQuestion = document.querySelector("#tableArea .test-answer-button");
   if (firstQuestion) startSpeechTest(firstQuestion);
 }
@@ -5312,7 +5390,9 @@ function showTestStartPanel() {
 }
 
 function revealTestAnswers() {
+  testSessionEnded = true;
   stopSpeechRecognition();
+  clearTestCountdown();
   document.querySelectorAll("#tableArea .test-answer-button").forEach(button => {
     if (button.dataset.correct === "true") return;
     button.dataset.revealed = "true";
@@ -5340,14 +5420,17 @@ function makeTestTable() {
     const kanjiReadingMap = getCellKanjiReadingMap(row.cells[row.cells.length - 1]);
     return `<tr><td>${prompt.innerHTML}</td><td class="test-answer-cell"><button class="test-answer-button" type="button" data-answer="${escapeHtml(answer)}" data-answer-reading="${escapeHtml(answerReading)}" data-kanji-reading-map="${escapeHtml(JSON.stringify(kanjiReadingMap))}" data-conjugation="${isConjugation}" onclick="startSpeechTest(this)" aria-label="${index + 1}問目を音声で答える"><span class="test-transcript">タップして話す 🎤</span><span class="test-status"></span></button></td></tr>`;
   }).join("");
-  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><div class="scroll-extra-y"></div>`;
+  document.getElementById("tableArea").innerHTML = `<table class="test-table"><tr><th>問題</th><th>あなたの答え</th></tr>${body}</table><button class="test-reveal-btn" type="button" onclick="revealTestAnswers()">答え</button><button class="test-timer-btn" id="testTimerBtn" type="button" aria-label="タイマー">${isConjugation ? "1:00" : "3:00"}</button><div class="scroll-extra-y"></div>`;
   return true;
 }
 
 function toggleTestMode() {
   if (testModeActive) {
+    testSessionEnded = true;
     stopSpeechRecognition();
+    clearTestCountdown();
     document.getElementById("testStartOverlay")?.remove();
+    document.getElementById("testCongratulations")?.remove();
     document.getElementById("tableArea").innerHTML = sequentialTableHtml;
     testModeActive = false;
     document.body.classList.remove("test-mode");
@@ -5807,6 +5890,9 @@ function showPlaceholderTable(title, message, returnSection = "home") {
 
 function showTable(type, focusKey = "") {
   stopSpeechRecognition();
+  clearTestCountdown();
+  document.getElementById("testCongratulations")?.remove();
+  testSessionEnded = true;
   stopPageOpenTracker();
   document.body.classList.remove("home-mode", "menu-mode", "sheet-high", "table-start-lowered", "position-vocab");
   if (type === "Vて" || type === "Vた" || type === "聞く" || type === "話す" || type === "つなぐ" || vocabCategories.includes(type)) {
@@ -5953,6 +6039,9 @@ function scrollToQuestionKey(key) {
 
 function backMenu() {
   stopSpeechRecognition();
+  clearTestCountdown();
+  document.getElementById("testCongratulations")?.remove();
+  testSessionEnded = true;
   testModeActive = false;
   document.body.classList.remove("test-mode");
   document.body.classList.remove("sheet-high", "table-start-lowered", "position-vocab");
