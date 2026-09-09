@@ -4384,6 +4384,7 @@ let localSpeechAvailable = false;
 let speechInputFallbackMode = false;
 let speechInputFallbackButton = null;
 let speechInputFallbackAcceptAfter = 0;
+let speechInputFallbackMismatchTimer = null;
 
 function setSpeechButtonClass(button, state = "") {
   const classes = ["test-answer-button"];
@@ -4749,6 +4750,7 @@ function stopSpeechRecognition() {
 }
 
 function closeSpeechInputFallback(clearTarget = true) {
+  clearSpeechInputFallbackMismatchTimer();
   speechInputFallbackAcceptAfter = 0;
   const input = document.getElementById("speechInputFallbackText");
   if (input) {
@@ -4781,9 +4783,9 @@ function openSpeechInputFallback(button) {
 
 function bindSpeechInputFallbackInput(input) {
   if (!input) return;
-  input.addEventListener("input", () => {
+  input.addEventListener("input", event => {
     if (!input.isConnected || input !== document.getElementById("speechInputFallbackText")) return;
-    handleSpeechInputFallbackInput(input);
+    handleSpeechInputFallbackInput(input, event.isComposing);
   });
   input.addEventListener("compositionupdate", () => {
     queueMicrotask(() => {
@@ -4799,6 +4801,7 @@ function bindSpeechInputFallbackInput(input) {
 }
 
 function resetSpeechInputFallbackInput() {
+  clearSpeechInputFallbackMismatchTimer();
   const input = document.getElementById("speechInputFallbackText");
   if (!input) return null;
   // Replacing the focused element terminates the old IME composition. Clearing
@@ -4830,7 +4833,58 @@ function moveSpeechInputFallback(button) {
   resetInput?.focus();
 }
 
-function handleSpeechInputFallbackInput(input) {
+function clearSpeechInputFallbackMismatchTimer() {
+  if (speechInputFallbackMismatchTimer !== null) clearTimeout(speechInputFallbackMismatchTimer);
+  speechInputFallbackMismatchTimer = null;
+}
+
+function getSpeechInputFallbackAnswers(button) {
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(button?.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  const isConjugation = button?.dataset.conjugation === "true";
+  return [button?.dataset.answer, button?.dataset.answerReading]
+    .filter(Boolean)
+    .flatMap(answer => [answer, String(answer).replace(/^\s*あ[!！]\s*/, "")])
+    .map(answer => normalizeSpeechForComparison(answer, kanjiReadingMap, isConjugation))
+    .filter(Boolean);
+}
+
+function isSpeechInputFallbackPotentialMatch(transcript, button = speechInputFallbackButton) {
+  if (!button) return false;
+  let kanjiReadingMap = [];
+  try {
+    kanjiReadingMap = JSON.parse(button.dataset.kanjiReadingMap || "[]");
+  } catch (error) {
+    kanjiReadingMap = [];
+  }
+  const normalizedTranscript = normalizeSpeechForComparison(
+    transcript,
+    kanjiReadingMap,
+    button.dataset.conjugation === "true"
+  );
+  if (!normalizedTranscript) return true;
+
+  return getSpeechInputFallbackAnswers(button).some(answer => {
+    // 入力全体が正解の先頭なら、まだ発話の途中なので録音を続ける。
+    if (answer.startsWith(normalizedTranscript)) return true;
+
+    // キーボード音声入力は直前の候補を残して後ろへ認識結果を足すことがある。
+    // 末尾が正解の先頭に2文字以上かすっていれば、候補が確定するまで待つ。
+    const requiredOverlap = Math.min(2, answer.length);
+    const maximumOverlap = Math.min(normalizedTranscript.length, answer.length);
+    for (let length = maximumOverlap; length >= requiredOverlap; length -= 1) {
+      if (normalizedTranscript.slice(-length) === answer.slice(0, length)) return true;
+    }
+    return false;
+  });
+}
+
+function handleSpeechInputFallbackInput(input, isComposing = false) {
+  clearSpeechInputFallbackMismatchTimer();
   if (Date.now() < speechInputFallbackAcceptAfter) {
     input.value = "";
     return;
@@ -4838,10 +4892,22 @@ function handleSpeechInputFallbackInput(input) {
   const transcript = input?.value.trim() || "";
   if (transcript && (isSpeechSkipRequest(transcript) || isSpeechInputFallbackAnswerCorrect(transcript))) {
     submitSpeechInputFallback();
+    return;
   }
-  // キーボードの音声入力は発話途中でもinputイベントが途切れることがある。
-  // 無音時間だけで誤答を確定すると入力欄の差し替えでマイクまで終了するため、
-  // 正解・スキップ以外はキーボードの「完了」（form submit）まで待つ。
+  if (!transcript || isComposing || isSpeechInputFallbackPotentialMatch(transcript)) return;
+
+  // 正解の先頭と末尾がかすっていない状態が続いた時だけ誤答にする。
+  // 短時間の変換候補や発話途中の揺れでマイクを切らないよう、入力停止後に再確認する。
+  const expectedButton = speechInputFallbackButton;
+  const expectedTranscript = transcript;
+  speechInputFallbackMismatchTimer = setTimeout(() => {
+    speechInputFallbackMismatchTimer = null;
+    if (input !== document.getElementById("speechInputFallbackText")
+      || speechInputFallbackButton !== expectedButton
+      || input.value.trim() !== expectedTranscript
+      || isSpeechInputFallbackPotentialMatch(expectedTranscript, expectedButton)) return;
+    submitSpeechInputFallback();
+  }, 700);
 }
 
 function isSpeechInputFallbackAnswerCorrect(transcript) {
