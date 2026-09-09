@@ -4949,6 +4949,7 @@ const CONJUGATION_READING_GROUPS = [
 ];
 
 const CONJUGATION_FORM_GROUPS = [
+  ["買おう", "顔", "飼おう", "花王"],
   ["とろう", "取ろう", "捕ろう", "撮ろう", "トロ―"],
   ["聞こう", "機構", "気候"],
   ["しよう", "使用", "仕様", "私用"],
@@ -5833,6 +5834,15 @@ function makeTestTable() {
   const isConjugation = currentSection === "conjugation";
 
   const selected = shuffleArray(rows).slice(0, Math.min(15, rows.length));
+  if (isConjugation && selected.length > 1) {
+    const longestAnswerIndex = selected.reduce((longestIndex, row, index, selectedRows) => {
+      const answerLength = Array.from(getCellAnswerText(row.cells[row.cells.length - 1])).length;
+      const longestLength = Array.from(getCellAnswerText(selectedRows[longestIndex].cells[selectedRows[longestIndex].cells.length - 1])).length;
+      return answerLength > longestLength ? index : longestIndex;
+    }, 0);
+    const [longestAnswerRow] = selected.splice(longestAnswerIndex, 1);
+    selected.unshift(longestAnswerRow);
+  }
   const body = selected.map((row, index) => {
     const prompt = row.cells[0].cloneNode(true);
     prompt.querySelectorAll(".question-box").forEach(node => node.remove());
