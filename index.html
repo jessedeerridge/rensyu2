@@ -4538,6 +4538,8 @@ function normalizeSpeechText(value) {
 
 const SPEECH_EQUIVALENT_GROUPS = [
   ["陳", "珍"],
+  // 「会います」がカタカナや漢字・かな混じりで認識された場合も許容する。
+  ["会います", "あいます", "アイマス", "アイます"],
   ["日本", "旅行"],
   ["このケーキ屋", "ケーキ屋", "このけーきや", "けーきや"],
   ["とき", "時"],
@@ -4906,7 +4908,6 @@ function startTestCountdown() {
 function finishTestSuccessfullyIfComplete() {
   const buttons = Array.from(document.querySelectorAll("#tableArea .test-answer-button"));
   if (!buttons.length || buttons.some(button => button.dataset.correct !== "true")) return false;
-  if (!testCountdownDeadline || Date.now() > testCountdownDeadline + 10000) return false;
 
   testSessionEnded = true;
   stopSpeechRecognition();
